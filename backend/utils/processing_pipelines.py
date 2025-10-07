@@ -9,7 +9,7 @@ This script compares two AI audio processing approaches:
 It measures response times and calculates costs for both approaches.
 """
 
-import os
+import os, io
 import json
 import time
 import wave
@@ -763,7 +763,7 @@ def print_results(method: str, elapsed_time: float, cost_info: dict) -> None:
 
 
 
-        
+
 
 def main():
     """Main function to run the audio model comparison."""

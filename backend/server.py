@@ -321,6 +321,20 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 
 
+import io
+import wave
+
+def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(n_channels)
+        wf.setsampwidth(sampwidth)  # 2 bytes for int16
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
+
 # Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
@@ -371,8 +385,11 @@ def voice_chat():
 
         print('Done processing. Info: ', elapsed, cost_info)
 
+        # Convert raw PCM to WAV
+        wav_bytes = pcm_to_wav_bytes(response_audio)
+
         # send audio directly
-        return Response(response_audio, mimetype="audio/wav")
+        return Response(wav_bytes, mimetype="audio/wav")
 
 
 

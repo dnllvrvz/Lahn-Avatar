@@ -91,6 +91,20 @@ class AudioPlayer:
             traceback.print_exc()
 
 
+# import io
+# import wave
+
+# def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
+#     buf = io.BytesIO()
+#     with wave.open(buf, 'wb') as wf:
+#         wf.setnchannels(n_channels)
+#         wf.setsampwidth(sampwidth)  # 2 bytes for int16
+#         wf.setframerate(sample_rate)
+#         wf.writeframes(pcm_bytes)
+#     return buf.getvalue()
+
+
+
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     

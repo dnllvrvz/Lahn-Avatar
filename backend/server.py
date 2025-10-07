@@ -335,9 +335,25 @@ def voice_chat():
         pipeline = request.form.get("pipeline", "OpenAI gpt-realtime")
 
         print('Recieved voice chat request. Pipeline: ', pipeline)
+        print('Audio: ', audio_path)
+
+
+        output_wav = 'data/temp.'+".wav"
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", audio_path, output_wav],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            print(f"[Success] Converted to: {output_wav}")
+        except subprocess.CalledProcessError as e:
+            print("[Error] ffmpeg decoding failed:\n", e.stderr.decode())
+            return None
+        
 
         # read into memory
-        audio_bytes = audio_path #audio_file.read()
+        audio_bytes = output_wav #audio_path #audio_file.read()
 
         # pass raw bytes to your dispatcher
         # Dispatch

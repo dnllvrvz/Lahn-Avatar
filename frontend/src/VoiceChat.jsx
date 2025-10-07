@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 
 export default function VoiceChat() {
   const [isRecording, setIsRecording] = useState(false);
-  const [pipeline, setPipeline] = useState("pipeline1");
+  const [pipeline, setPipeline] = useState("OpenAI gpt-realtime");
   const [messages, setMessages] = useState([]);
   const [isThinking, setIsThinking] = useState(false);
   const mediaRecorderRef = useRef(null);

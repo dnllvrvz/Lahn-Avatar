@@ -317,8 +317,8 @@ from dotenv import load_dotenv
 load_dotenv()
 print('Loaded from .env file.')
 
-openai_api_key = os.getenv("OPENAI_API_KEY")
-cartesia_api_key = os.getenv("CARTESIA_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 
 @app.post("/api/voice-chat")
 def voice_chat():

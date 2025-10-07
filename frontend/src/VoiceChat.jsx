@@ -92,9 +92,9 @@ export default function VoiceChat() {
           onChange={(e) => setPipeline(e.target.value)}
           className="border rounded p-2 bg-white font-poetic"
         >
-          <option value="pipeline1">OpenAI gpt-realtime</option>
-          <option value="pipeline2">OpenAI gpt4o</option>
-          <option value="pipeline3">Cartesia</option>
+          <option value="OpenAI gpt-realtime">OpenAI gpt-realtime</option>
+          <option value="OpenAI gpt4o">OpenAI gpt4o</option>
+          <option value="Cartesia">Cartesia</option>
         </select>
       </div>
 

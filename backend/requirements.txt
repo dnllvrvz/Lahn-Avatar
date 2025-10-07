@@ -1,0 +1,50 @@
+
+#LLM related
+
+llama-index
+gdown
+openai
+dotenv
+#rich
+PyMuPDF
+pypdf
+python-docx
+#sentence-transformers
+llama-index-embeddings-huggingface
+llama-index-readers-web
+llama-index-readers-youtube-transcript
+llama-index-llms-azure-openai
+llama-index-experimental
+#llama-index-llms-openai-like
+
+
+#For text-based retrieval
+langdetect
+deep-translator
+rank-bm25
+
+
+numpy==1.26.4
+
+
+
+
+#For webserver
+
+flask
+flask-cors
+
+
+
+#speech-to-speech
+
+#soundfile
+#sounddevice 
+#websockets 
+#simpleaudio 
+#numpy 
+#aiohttp
+
+
+#For Experience Upload
+torchaudio

@@ -1,0 +1,16 @@
+__pycache__/
+
+lahn_env/
+backups/
+
+.archive/
+
+backend/data/*
+
+frontend/public/video.mp4
+#frontend/package.json
+#frontend/package-lock.json
+
+.env
+
+test/

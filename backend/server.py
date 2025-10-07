@@ -325,6 +325,8 @@ def voice_chat():
         audio_file = request.files["audio"]   # comes from FormData
         pipeline = request.form.get("pipeline", "OpenAI gpt-realtime")
 
+        print('Recieved voice chat request. Pipeline: ', pipeline)
+
         # read into memory
         audio_bytes = audio_file.read()
 
@@ -342,12 +344,15 @@ def voice_chat():
         else:
             return jsonify({"error": f"Unknown pipeline '{pipeline}'"}), 400
 
+        print('Done processing. Info: ', elapsed, cost_info)
+
         # send audio directly
         return Response(response_audio, mimetype="audio/wav")
 
 
 
     except Exception as e:
+        print({"error": str(e)})
         return jsonify({"error": str(e)}), 500
 
 

@@ -762,6 +762,9 @@ def print_results(method: str, elapsed_time: float, cost_info: dict) -> None:
             print(f"💬 AI response: \"{cost_info['output_transcript']}\"")
 
 
+
+        
+
 def main():
     """Main function to run the audio model comparison."""
     print("\n🎯 Audio Model Comparison Test")
@@ -776,7 +779,7 @@ def main():
         pass
     
     # Check for API keys
-    
+
     openai_api_key = os.getenv("OPENAI_API_KEY")
     cartesia_api_key = os.getenv("CARTESIA_API_KEY")
 

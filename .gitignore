@@ -15,4 +15,5 @@ frontend/public/video.mp4
 
 test/
 
+backend/.env
 backend/utils/.env

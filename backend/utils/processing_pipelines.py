@@ -108,7 +108,7 @@ class AudioPlayer:
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
-    def __init__(self, api_key: str, model: str = "gpt-realtime"):
+    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt = ''):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
@@ -344,7 +344,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": "You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -475,7 +475,7 @@ class OpenAIRealtimeClient:
 class CartesiaOpenAIPipeline:
     """Pipeline for Cartesia STT -> OpenAI GPT-4 -> Cartesia TTS."""
     
-    def __init__(self, cartesia_api_key: str, openai_api_key: str):
+    def __init__(self, cartesia_api_key: str, openai_api_key: str, prompt=''):
         self.cartesia_api_key = cartesia_api_key
         self.openai_api_key = openai_api_key
         self.cartesia_base_url = "https://api.cartesia.ai"
@@ -641,7 +641,7 @@ class CartesiaOpenAIPipeline:
             data = {
                 "model": "gpt-4o",
                 "messages": [
-                    {"role": "system", "content": "You are a helpful AI assistant. Give very short, direct answers."},
+                    {"role": "system", "content": prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
                     {"role": "user", "content": text}
                 ],
                 "temperature": 0.7

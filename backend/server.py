@@ -338,6 +338,12 @@ def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
 # Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
+    global system_prompt
+
+    #Do away with function-related instructions, for now.
+    index = system_prompt.find('You also have access to sensory data')
+    system_prompt = system_prompt[:index]
+
     try:
         # get uploaded file + pipeline choice
         audio_file = request.files["audio"]   # comes from FormData
@@ -372,13 +378,13 @@ def voice_chat():
         # pass raw bytes to your dispatcher
         # Dispatch
         if pipeline == "OpenAI gpt-realtime":
-            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime")
+            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt)
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         elif pipeline == "OpenAI gpt4o":
-            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview")
+            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt)
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         elif pipeline == "Cartesia":
-            client = CartesiaOpenAIPipeline(CARTESIA_API_KEY, OPENAI_API_KEY)
+            client = CartesiaOpenAIPipeline(CARTESIA_API_KEY, OPENAI_API_KEY, prompt = system_prompt)
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         else:
             return jsonify({"error": f"Unknown pipeline '{pipeline}'"}), 400

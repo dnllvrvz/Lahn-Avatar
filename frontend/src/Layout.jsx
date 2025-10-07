@@ -49,7 +49,7 @@ export default function Layout() {
         >
           🧠 Chat with the River
         </Link>
-        {/*<Link
+        <Link
           to="/voice-chat"
           onClick={() => setIsOpen(false)}
           className={`px-4 py-2 rounded-md font-medium transition-colors ${
@@ -59,7 +59,7 @@ export default function Layout() {
           }`}
         >
           🗣 Voice Chat
-        </Link>*/}
+        </Link>
         <Link
           to="/experience"
           onClick={() => setIsOpen(false)}

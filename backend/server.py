@@ -390,7 +390,7 @@ def voice_chat():
             return jsonify({"error": f"Unknown pipeline '{pipeline}'"}), 400
 
         print('Done processing. Info: ', elapsed, cost_info)
-        print('System prompt: ', system_prompt_)
+        # print('System prompt: ', system_prompt_)
 
         # Convert raw PCM to WAV
         wav_bytes = pcm_to_wav_bytes(response_audio)

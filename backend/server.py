@@ -320,17 +320,24 @@ print('Loaded from .env file.')
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 
+
+# Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
     try:
         # get uploaded file + pipeline choice
         audio_file = request.files["audio"]   # comes from FormData
+
+        ext = audio_file.mimetype.split("/")[-1] 
+        audio_path = 'data/temp.'+ext
+        audio_file.save(audio_path)
+
         pipeline = request.form.get("pipeline", "OpenAI gpt-realtime")
 
         print('Recieved voice chat request. Pipeline: ', pipeline)
 
         # read into memory
-        audio_bytes = audio_file.read()
+        audio_bytes = audio_path #audio_file.read()
 
         # pass raw bytes to your dispatcher
         # Dispatch

@@ -319,7 +319,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 cartesia_api_key = os.getenv("CARTESIA_API_KEY")
 
 @app.post("/api/voice-chat")
-async def voice_chat():
+def voice_chat():
     try:
         # get uploaded file + pipeline choice
         audio_file = request.files["audio"]   # comes from FormData

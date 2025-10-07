@@ -126,6 +126,7 @@ class OpenAIRealtimeClient:
         self.response_complete = threading.Event()
         self.input_transcript = ""
         self.output_transcript = ""
+        self.prompt = prompt
         
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""
@@ -344,7 +345,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": self.prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -480,6 +481,7 @@ class CartesiaOpenAIPipeline:
         self.openai_api_key = openai_api_key
         self.cartesia_base_url = "https://api.cartesia.ai"
         self.last_stt_duration = 0  # For cost calculation
+        self.prompt = prompt
         
     def process_audio(self, audio_input) -> Tuple[Optional[bytes], float, dict]:
         """Process audio through the Cartesia-OpenAI pipeline."""
@@ -641,7 +643,7 @@ class CartesiaOpenAIPipeline:
             data = {
                 "model": "gpt-4o",
                 "messages": [
-                    {"role": "system", "content": prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
+                    {"role": "system", "content": self.prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
                     {"role": "user", "content": text}
                 ],
                 "temperature": 0.7

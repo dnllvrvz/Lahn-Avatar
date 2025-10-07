@@ -19,7 +19,7 @@ import queue
 from typing import Optional, Tuple
 from datetime import datetime
 import numpy as np
-import sounddevice as sd
+# import sounddevice as sd
 import requests
 import websocket
 

@@ -209,20 +209,20 @@ def tokenize(text:str, lang:str) -> list[str]:
 # ------------------------------------------------------------------
 # 1. translation helper with cache
 # ------------------------------------------------------------------
-_trans_cache: dict[tuple[str,str], str] = {}   # (text, target_lang) → translated
+# _trans_cache: dict[tuple[str,str], str] = {}   # (text, target_lang) → translated
 
-def translate(text:str, target_lang:str) -> str:
-    """
-    Translate 'text' to target language ('de' or 'en') using deep_translator.
-    Caches results to avoid hitting rate limits.
-    """
-    key = (text, target_lang)
-    if key in _trans_cache:
-        return _trans_cache[key]
+# def translate(text:str, target_lang:str) -> str:
+#     """
+#     Translate 'text' to target language ('de' or 'en') using deep_translator.
+#     Caches results to avoid hitting rate limits.
+#     """
+#     key = (text, target_lang)
+#     if key in _trans_cache:
+#         return _trans_cache[key]
 
-    translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
-    _trans_cache[key] = translated
-    return translated
+#     translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
+#     _trans_cache[key] = translated
+#     return translated
 
 
 def prepare_text_index(RAW_TEXT):
@@ -254,8 +254,8 @@ def search_text_index(bm25, chunks, query:str, k_each:int=5):
     query = ' '.join(keyword_list[:3])
     trans_q = ' '.join(keyword_list[3:])
 
-    lang_orig  = "de" if detect(query) == "de" else "en"
-    lang_trans = "en" if lang_orig == "de" else "de"
+    lang_orig  = 'en' #"de" if detect(query) == "de" else "en"
+    lang_trans = 'de' #"en" if lang_orig == "de" else "de"
 
     # --- original language pass -----------------------------------
     q_tokens_o = tokenize(normalise(query), lang_orig)
@@ -415,43 +415,3 @@ def build_or_load_index(refresh=False):
     
     return vector_index, text_index, chunks
 
-
-# def main():
-#     console = Console()
-#     console.print("[bold cyan]Lahn River AI Avatar[/bold cyan]\n")
-
-#     refresh = input("Refresh Knowledge Base and System Prompt from Google Drive? (y/n): ").strip().lower() == "y"
-
-#     if refresh:
-#         fetch_system_prompt_from_gdoc()
-
-#     model_name = select_model()
-#     llm = get_llm(model_name)
-
-#     console.print("\U0001F4DA Preparing vector index...")
-#     index = build_or_load_index(llm, refresh=refresh)
-
-#     memory = ChatMemoryBuffer.from_defaults(token_limit=2000)
-#     chat_engine = index.as_chat_engine(chat_mode="context", memory=memory)
-
-#     console.print("✅ Ready to chat!\n")
-#     console.print(f"[bold green]Lahn River (Model: {model_name})[/bold green]")
-#     console.print("Type 'exit' to quit.\n")
-
-#     log_file = create_session_log()
-
-#     while True:
-#         user_input = input("[You]: ")
-#         if user_input.lower() in ["exit", "quit"]:
-#             break
-
-#         response = chat_engine.chat(user_input)
-#         console.print(f"[Lahn River]: {response.response}")
-#         log_file.write(f"You: {user_input}\nLahn River: {response.response}\n\n")
-
-#     log_file.close()
-#     console.print("\U0001F4C1 Chat session saved.")
-
-
-# if __name__ == "__main__":
-#     main()

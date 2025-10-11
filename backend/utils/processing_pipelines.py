@@ -335,6 +335,19 @@ class OpenAIRealtimeClient:
         cost_info['output_transcript'] = self.output_transcript
         
         return response_audio, elapsed_time, cost_info
+
+
+    def _get_weather(self, city: str):
+        """Dummy weather lookup function."""
+        print(f"🌦️  Fetching weather for: {city}")
+        # You could call a real API here, but let’s fake it for now
+        fake_data = {
+            "Lagos": "30°C and sunny",
+            "Paris": "22°C and cloudy",
+            "New York": "18°C and windy"
+        }
+        return fake_data.get(city, f"Sorry, I don't have data for {city}.")
+
     
     def _on_open(self, ws):
         """Handle WebSocket connection open."""
@@ -358,6 +371,31 @@ class OpenAIRealtimeClient:
         }
         ws.send(json.dumps(session_update))
         print("📋 Session configuration sent")
+
+        # --- Add tool definitions ---
+        tools = [
+            {
+                "type": "function",
+                "name": "get_weather",
+                "description": "Get current weather information for a given city",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string", "description": "City name"}
+                    },
+                    "required": ["city"]
+                }
+            }
+        ]
+
+        ws.send(json.dumps({
+            "type": "session.update",
+            "session": {
+                "tools": tools
+            }
+        }))
+        print("[INIT] Tool definitions sent.")
+
     
     def _on_message(self, ws, message):
         """Handle incoming WebSocket messages."""
@@ -382,11 +420,6 @@ class OpenAIRealtimeClient:
                     self.audio_buffer.extend(audio_chunk)
                     print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
             
-            elif event_type == 'response.audio.done':
-                # Audio response complete
-                print("🎵 Audio response complete")
-                # Don't set complete here - wait for response.done
-            
             elif event_type == 'response.done':
                 # Full response complete
                 print("✅ Response generation complete")
@@ -405,9 +438,6 @@ class OpenAIRealtimeClient:
                 text = data.get('text', '')
                 print(f"📝 Complete text response: {text}")
             
-            elif event_type == 'session.updated':
-                print("✅ Session configuration updated")
-            
             elif event_type == 'error':
                 error_data = data.get('error', {})
                 error_type = error_data.get('type', 'unknown_error')
@@ -416,21 +446,9 @@ class OpenAIRealtimeClient:
                 print(f"❌ API Error [{error_type}:{error_code}]: {error_message}")
                 self.response_complete.set()
             
-            elif event_type == 'input_audio_buffer.speech_started':
-                print("🎤 Speech detected in input")
-            
-            elif event_type == 'input_audio_buffer.speech_stopped':
-                print("🔇 Speech ended in input")
-            
             elif event_type == 'input_audio_buffer.committed':
                 item_id = data.get('item_id', 'unknown')
                 print(f"✅ Audio buffer committed (item_id: {item_id})")
-            
-            elif event_type == 'response.created':
-                print("📝 Response creation started")
-            
-            elif event_type == 'input_audio_buffer.cleared':
-                print("🗑️  Audio buffer cleared")
             
             elif event_type == 'conversation.item.input_audio_transcription.completed':
                 # Input audio transcription
@@ -449,6 +467,42 @@ class OpenAIRealtimeClient:
                 if transcript:
                     self.output_transcript = transcript
                 print(f"💬 Output transcript: {self.output_transcript}")
+
+            #wrt function calling
+            elif event_type == "response.function_call_arguments.delta":
+                # The model is streaming function call arguments
+                name = data.get("name", "")
+                delta = data.get("delta", "")
+                print(f"🧩 Function call in progress: {name}, args delta: {delta}")
+
+            elif event_type == "response.function_call_arguments.done":
+                # The model finished providing the arguments
+                name = data.get("name")
+                arguments = data.get("arguments")
+                print(f"🧩 Function call requested: {name}({arguments})")
+
+                # Try to parse arguments safely
+                try:
+                    args = json.loads(arguments) if arguments else {}
+                except json.JSONDecodeError:
+                    args = {}
+                
+                # Route to your actual function
+                result = None
+                if name == "get_weather":
+                    result = self._get_weather(**args)
+                
+                # Send the result back to the model
+                if result is not None:
+                    ws.send(json.dumps({
+                        "type": "response.output_text.delta",
+                        "delta": f"Function {name} returned: {result}"
+                    }))
+                    ws.send(json.dumps({"type": "response.output_text.done"}))
+
+
+            elif event_type in ['response.audio.done', 'session.updated', 'input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'response.created', 'input_audio_buffer.cleared']:
+                print('Event recieved: ', event_type)
             
             # Debug: print other event types
             elif event_type not in ['response.content_part.added', 

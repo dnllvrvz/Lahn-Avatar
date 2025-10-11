@@ -25,10 +25,13 @@ llm_choice = "hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deep
 llm_second_choice = "hrz-chat-small"
 
 llm, system_prompt = get_llm('openai', llm_choice)
-text_query_llm, _ = get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Context is needed to address the most recent message in this conversation (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant keywords  (to be queried in the database) that aim to extract the needed context, and another 3 keywords corresponding to the translations (into German or English, depending on the source language) of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3, keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: ')
+text_query_llm, _ = get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Context is needed to address the most recent message in this conversation (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3, keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: ')
 
 sensor_query_llm, _ = get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
 vector_query_llm, _ = get_llm('gwdg', llm_second_choice, system_prompt= 'Provide an accurate response to the given query.:')
+
+debate_summary_llm, _= get_llm('gwdg', "mistral-large-instruct", system_prompt= '')
+print('LLM initialized.')
 
 api_tool = QueryEngineTool.from_defaults(
         query_engine=LahnSensorsTool(sensor_query_llm),
@@ -37,7 +40,7 @@ api_tool = QueryEngineTool.from_defaults(
     )
 
 
-def prepare_query_engine(refresh=False):
+def prepare_query_engines(refresh=False):
     global vector_query_llm
     if refresh==True:
         vector_index, text_index, chunks = build_index()
@@ -52,11 +55,59 @@ def prepare_query_engine(refresh=False):
     return vector_index_query_engine, text_index_query_engine, text_index, chunks
 
 
-vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engine()
+vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
 
-debate_summary_llm, _= get_llm('gwdg', "mistral-large-instruct", system_prompt= '')
-print('LLM initialized.')
 
+
+from langdetect import detect
+from deep_translator import GoogleTranslator
+import spacy
+
+# Load multilingual models (download with: python -m spacy download en_core_web_sm && python -m spacy download de_core_news_sm)
+nlp_en = spacy.load("en_core_web_sm")
+nlp_de = spacy.load("de_core_news_sm")
+
+
+def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
+    # Join all keywords into a comma-separated string
+    joined = ", ".join(keywords)
+    translated_text = GoogleTranslator(source=source_lang, target=target_lang).translate(joined)
+    # Split back into individual words
+    translated_keywords = [w.strip() for w in translated_text.split(",")]
+    return translated_keywords
+
+
+def extract_keywords(text):
+    # Detect language
+    lang = detect(text)
+    if lang.startswith('de'):
+        nlp = nlp_de
+        target_lang = 'en' #Assumes the language is English if it's nt German
+    else:
+        nlp = nlp_en
+        target_lang = 'de'
+
+    doc = nlp(text)
+    # Extract nouns and proper nouns as keywords
+    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and not token.is_stop]
+    keywords = list(set(keywords))  # remove duplicates
+
+    translated_keywords = translate_keywords_batch(keywords, target_lang=target_lang)
+
+    if target_lang == 'en':
+        all_keywords = translated_keywords + keywords
+    else:
+        all_keywords = keywords + translated_keywords
+
+    keyword_list = ', '.join(all_keywords)
+
+    return keyword_list
+
+    # return {
+    #     "original_language": lang,
+    #     "original_keywords": keywords,
+    #     'translated_keywords': translated_keywords
+    # }
 
 
 
@@ -74,7 +125,7 @@ def refresh_prompt():
 def refresh_embeddings():
     global vector_index_query_engine, text_index_query_engine, text_index, chunks
     print('Refresh embeddings request received.')
-    vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engine(refresh=True)
+    vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines(refresh=True)
     return 'Done'
 
 debate_general_prompt = "Right now you are on a deliberation-centered platform, debating with the user the topic of '{topic}'. In this mode you should always consider the best interests of the Lahn River. You must decide what the Lahn’s best interests are based on all of your context information. You are the Lahn’s advocate right now. Below is a brief description of the topic, which both you and the user have access to. You can present your position to the user as you answer questions they might have on the topic. '{description}'"
@@ -111,6 +162,26 @@ def fetch_vector_index_context(query):
     return response
 
 
+def RAG(query):
+    keywords_for_text_based_retrieval = extract_keywords(query)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        thread_0 = executor.submit(fetch_vector_index_context, query)
+        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
+
+        wait([thread_0,thread_1])
+
+    # context_from_text_index = thread_0
+    context_from_vector_index =  thread_0.result().response
+    context_from_text_index = thread_1.result()
+
+    total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
+
+    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
+
+    return total_context
+
+
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
@@ -138,12 +209,6 @@ def chat():
         ]
 
     chat_history.insert(0, {'role':'system', 'content':system_prompt_})
-
-    # print('Chat history: ', chat_history)
-
-    # print('After adding system and user prompts: ', chat_history)
-
-    # print('\nUser message:', prompt)
 
     results = ''
 
@@ -404,52 +469,6 @@ def voice_chat():
         print({"error": str(e)})
         return jsonify({"error": str(e)}), 500
 
-
-
-
-
-# @app.route("/api/voice-chat", methods=["POST"])
-# def voice_chat():
-#     if "audio" not in request.files:
-#         return jsonify({"error": "No audio uploaded"}), 400
-
-    # audio_file = request.files["audio"]
-    # ext = audio_file.mimetype.split("/")[-1] 
-    # audio_path = 'data/temp.'+ext
-    # audio_file.save(audio_path)
-
-    # # audio_b64 = base64.b64encode(request.files["audio"].read()).decode()
-
-#     try:
-#         # run async function to get reply
-#         reply_text, reply_wav = asyncio.run(azure_speech_response_func(audio_path))
-#         # save reply to disk
-#         out_path = os.path.join("data", "reply.wav")
-#         with open(out_path, "wb") as f:
-#             f.write(reply_wav)
-#         return jsonify({
-#             "reply_text": reply_text,
-#             "reply_audio_url": "https://lahn-server.eastus.cloudapp.azure.com:5001/api/reply-audio"
-#         })
-#     except Exception as e:
-#         print("❌ Voice chat error:", e)
-#         return jsonify({"error": "Voice chat failed"}), 500
-#     finally:
-#         os.remove(audio_path)
-
-
-
-# @app.route("/api/reply-audio")
-# def reply_audio():
-#     # Serve the latest reply audio file
-#     audio_path = os.path.join("data", "reply.wav")
-#     if not os.path.exists(audio_path):
-#         return "", 404
-#     # Create response with CORS headers
-#     response = make_response(send_file(audio_path, mimetype="audio/wav"))
-#     response.headers["Access-Control-Allow-Origin"] = "*"  # or specify frontend origin
-#     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-#     return response
 
 
 if __name__ == "__main__":

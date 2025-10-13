@@ -6,7 +6,7 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import get_llm, build_index, build_or_load_index, fetch_system_prompt_from_gdoc, search_text_index
+from utils.avatar import get_llm, fetch_system_prompt_from_gdoc#, build_index, build_or_load_index, search_text_index
 from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, format_history_as_string, pcm_to_wav_bytes #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient, CartesiaOpenAIPipeline
 
@@ -40,25 +40,6 @@ api_tool = QueryEngineTool.from_defaults(
     )
 
 
-def prepare_query_engines(refresh=False):
-    global vector_query_llm
-    if refresh==True:
-        vector_index, text_index, chunks = build_index()
-    else:
-        vector_index, text_index, chunks = build_or_load_index()
-
-    # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
-
-    vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
-    text_index_query_engine = search_text_index
-
-    return vector_index_query_engine, text_index_query_engine, text_index, chunks
-
-
-vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
-
-
-
 
 @app.route("/api/refresh-prompt", methods=["POST"])
 def refresh_prompt():
@@ -84,32 +65,6 @@ topic_descriptions = {
     'There should exist a “Lahn Fund”': "A dedicated “Lahn Fund” would serve as a financial mechanism to support the ongoing protection, restoration, and stewardship of the river. This fund could receive public and private contributions, fines from environmental damages, or a share of local economic activities that depend on the river. Managed in the river’s interest, the fund could finance ecological research, conservation projects, community engagement, and support the operational costs of the Avatar or legal guardianship system.",
     'The Avatar should be able to legally speak on behalf of the Lahn': "The Lahn Avatar is envisioned as a voice for the river—an interface between natural and human systems. Allowing the Avatar to legally speak on behalf of the Lahn would formalize its role as a representative entity in decision-making processes. This could enable the river’s interests to be expressed in public hearings, governmental deliberations, and community forums, fostering a new model of ecological democracy and interspecies governance."
   }
-
-
-def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
-    print('Fetching context from text index...')
-    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
-    # print('Query prompt: ', query_prompt)
-
-    query = str(text_query_llm.complete(query_prompt))
-    # print('Crafted Query: ', query)
-    context_from_text_index = text_index_query_engine(text_index, chunks, query)
-    print('\n\nContext from text index: ', context_from_text_index)
-    context_from_text_index = '\n'.join(context_from_text_index)
-
-    print('Done fetching context from text index...')
-
-    return context_from_text_index
-
-
-def fetch_vector_index_context(query):
-    print('Fetching context from vector index...')
-    response =  vector_index_query_engine.query(query)
-    print('\n\nContext from vector index: ', response)
-
-    print('Done fetching context from vector index...')
-    return response
-
 
 
 @app.route("/api/chat", methods=["POST"])

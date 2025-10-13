@@ -356,6 +356,52 @@ def extract_keywords(text):
 
 
 
+def prepare_query_engines(refresh=False):
+    global vector_query_llm
+    if refresh==True:
+        vector_index, text_index, chunks = build_index()
+    else:
+        vector_index, text_index, chunks = build_or_load_index()
+
+    # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
+
+    vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
+    text_index_query_engine = search_text_index
+
+    return vector_index_query_engine, text_index_query_engine, text_index, chunks
+
+
+vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
+
+
+
+
+def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
+    print('Fetching context from text index...')
+    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
+    # print('Query prompt: ', query_prompt)
+
+    query = str(text_query_llm.complete(query_prompt))
+    # print('Crafted Query: ', query)
+    context_from_text_index = text_index_query_engine(text_index, chunks, query)
+    print('\n\nContext from text index: ', context_from_text_index)
+    context_from_text_index = '\n'.join(context_from_text_index)
+
+    print('Done fetching context from text index...')
+
+    return context_from_text_index
+
+
+def fetch_vector_index_context(query):
+    print('Fetching context from vector index...')
+    response =  vector_index_query_engine.query(query)
+    print('\n\nContext from vector index: ', response)
+
+    print('Done fetching context from vector index...')
+    return response
+
+
+
 
 
 def RAG(query):

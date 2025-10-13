@@ -518,7 +518,7 @@ vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare
 def fetch_vector_index_context(query):
     print('Fetching context from vector index...')
     response =  vector_index_query_engine.query(query)
-    print('\n\nContext from vector index: ', response)
+    # print('\n\nContext from vector index: ', response)
 
     print('Done fetching context from vector index...')
     return response
@@ -547,7 +547,7 @@ def RAG(query):
 
     total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
 
-    print('RAG result: ', total_context)
+    print('-----\n\nRAG result: ', total_context)
     return total_context
 
 

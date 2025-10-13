@@ -476,6 +476,7 @@ def build_or_load_index(refresh=False):
 
 llm_choice = "hrz-chat-small"
 vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
+text_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Context is needed to address the most recent message in this conversation (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3, keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: ')
 
 
 
@@ -499,20 +500,22 @@ vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare
 
 
 
-# def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
-#     print('Fetching context from text index...')
-#     query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
-#     # print('Query prompt: ', query_prompt)
+def fetch_text_index_query(conversation):
+    global text_query_llm
+    print('Fetching context from text index...')
+    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
+    # print('Query prompt: ', query_prompt)
 
-#     query = str(text_query_llm.complete(query_prompt))
-#     # print('Crafted Query: ', query)
-#     context_from_text_index = text_index_query_engine(text_index, chunks, query)
-#     print('\n\nContext from text index: ', context_from_text_index)
-#     context_from_text_index = '\n'.join(context_from_text_index)
+    query = str(text_query_llm.complete(query_prompt))
+    # print('Crafted Query: ', query)
+    return query
+    # context_from_text_index = text_index_query_engine(text_index, chunks, query)
+    # print('\n\nContext from text index: ', context_from_text_index)
+    # context_from_text_index = '\n'.join(context_from_text_index)
 
-#     print('Done fetching context from text index...')
+    # print('Done fetching context from text index...')
 
-#     return context_from_text_index
+    # return context_from_text_index
 
 
 def fetch_vector_index_context(query):
@@ -527,9 +530,12 @@ def fetch_vector_index_context(query):
 
 
 
-def RAG(query):
+def RAG(query, text_index_query=None):
     # keywords_for_text_based_retrieval 
-    en_keywords, de_keywords = extract_keywords(query)
+    if text_index_query==None:
+        en_keywords, de_keywords = extract_keywords(query)
+    else:
+        en_keywords, de_keywords = extract_keywords(text_index_query)
     print('Keywords for text-based retrieval: ', en_keywords, de_keywords)
 
     with ThreadPoolExecutor(max_workers=2) as executor:

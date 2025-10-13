@@ -118,15 +118,6 @@ def sanitize_filename(url):
     return f"{domain.replace('.', '_')}_{hashed}.txt"
 
 
-
-def select_model():
-    print("Choose a model:")
-    print("1. Mistral")
-    print("2. SauerKrautLM (Llama finetuned on German data)")
-    choice = input("Enter 1 or 2: ")
-    return "llama-3.1-sauerkrautlm-70b-instruct" if choice == "2" else "mistral-large-instruct"
-
-
 def get_llm(mode='openai',model_name=None, system_prompt=None):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, 'system_prompt.txt')
@@ -474,8 +465,8 @@ def build_or_load_index(refresh=False):
 
 
 
-
-vector_query_llm, _ = get_llm('gwdg', llm_second_choice, system_prompt= 'Provide an accurate response to the given query.:')
+llm_choice = "hrz-chat-small"
+vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
 
 
 
@@ -550,7 +541,7 @@ def RAG(query):
 
 
 
-    
+
 
 
 

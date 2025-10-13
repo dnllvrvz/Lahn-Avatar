@@ -96,7 +96,7 @@ def chat():
 
     print('Obtaining information for the LLM...')
     # print('Fetching context from indexes...')
-    # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
+    query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
     
     text_index_query = fetch_text_index_query(conversation)
     context = RAG(query, text_index_query = text_index_query)

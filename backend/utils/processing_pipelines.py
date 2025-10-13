@@ -16,7 +16,7 @@ from .avatar import RAG
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
-    def __init__(self, api_key: str, model: str = "gpt-realtime"):
+    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt=''):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
@@ -36,6 +36,8 @@ class OpenAIRealtimeClient:
         self.output_transcript = ""
         self.awaiting_function_response = False
         self.current_response_has_function_call = False
+
+        self.prompt = prompt
         
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""
@@ -280,7 +282,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": "You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": self.prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",

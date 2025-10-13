@@ -22,6 +22,8 @@ langdetect
 deep-translator
 rank-bm25
 
+spacy
+
 
 numpy==1.26.4
 

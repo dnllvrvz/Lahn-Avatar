@@ -572,6 +572,13 @@ class CartesiaOpenAIPipeline:
             end_time = time.time()
             elapsed_time = end_time - start_time
             return None, elapsed_time, cost_info
+
+    def _get_info_about_lahn(self, query: str):
+        print('Function called: _get_info_about_lahn(). Query: ', query)
+        print('Activating RAG...')
+        context = RAG(query)
+
+        return context
     
     def _speech_to_text(self, audio_input) -> Optional[str]:
         """Convert speech to text using Cartesia."""

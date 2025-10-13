@@ -503,6 +503,7 @@ class CartesiaOpenAIPipeline:
             # Step 2: Process with OpenAI GPT-4
             llm_start = time.time()
             llm_response, llm_tokens = self._process_with_gpt4(transcript)
+
             cost_info['llm_time'] = time.time() - llm_start
             cost_info['llm_response'] = llm_response
             
@@ -700,12 +701,13 @@ class CartesiaOpenAIPipeline:
                                 headers=headers,
                                 json=followup
                             )
-                            print(followup_response.json())
+                            print('Follow up response from tool call: ', followup_response.json())
 
-                            result = followup_response
+                            response = followup_response
 
                 result = response.json()
                 message = result['choices'][0]['message']['content']
+                print('Message: ', message)
                 
                 # For fair comparison, only count user message tokens (exclude system prompt)
                 # The system prompt is: "You are a helpful AI assistant. Give very short, direct answers."

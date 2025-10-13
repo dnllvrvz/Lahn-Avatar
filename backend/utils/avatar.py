@@ -331,7 +331,7 @@ def extract_keywords(text):
     doc = nlp(text)
     print('extract_keyword doc: ', doc)
     # Extract nouns and proper nouns as keywords
-    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and not token.is_stop]
+    keywords = [token.text for token in doc if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
     keywords = list(set(keywords))  # remove duplicates
     print('Keywords: ', keywords)
 

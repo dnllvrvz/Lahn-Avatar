@@ -25,6 +25,7 @@ from openai import OpenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 from .gwdg_llm import GWDGChatLLM
+from .utils import format_history_as_string
 
 
 load_dotenv()

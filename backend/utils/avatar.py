@@ -475,6 +475,7 @@ def build_or_load_index(refresh=False):
 
 
 
+vector_query_llm, _ = get_llm('gwdg', llm_second_choice, system_prompt= 'Provide an accurate response to the given query.:')
 
 
 
@@ -498,20 +499,20 @@ vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare
 
 
 
-def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
-    print('Fetching context from text index...')
-    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
-    # print('Query prompt: ', query_prompt)
+# def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
+#     print('Fetching context from text index...')
+#     query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
+#     # print('Query prompt: ', query_prompt)
 
-    query = str(text_query_llm.complete(query_prompt))
-    # print('Crafted Query: ', query)
-    context_from_text_index = text_index_query_engine(text_index, chunks, query)
-    print('\n\nContext from text index: ', context_from_text_index)
-    context_from_text_index = '\n'.join(context_from_text_index)
+#     query = str(text_query_llm.complete(query_prompt))
+#     # print('Crafted Query: ', query)
+#     context_from_text_index = text_index_query_engine(text_index, chunks, query)
+#     print('\n\nContext from text index: ', context_from_text_index)
+#     context_from_text_index = '\n'.join(context_from_text_index)
 
-    print('Done fetching context from text index...')
+#     print('Done fetching context from text index...')
 
-    return context_from_text_index
+#     return context_from_text_index
 
 
 def fetch_vector_index_context(query):

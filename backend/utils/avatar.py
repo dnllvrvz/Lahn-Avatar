@@ -356,76 +356,6 @@ def extract_keywords(text):
 
 
 
-def prepare_query_engines(refresh=False):
-    global vector_query_llm
-    if refresh==True:
-        vector_index, text_index, chunks = build_index()
-    else:
-        vector_index, text_index, chunks = build_or_load_index()
-
-    # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
-
-    vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
-    text_index_query_engine = search_text_index
-
-    return vector_index_query_engine, text_index_query_engine, text_index, chunks
-
-
-vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
-
-
-
-
-def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
-    print('Fetching context from text index...')
-    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
-    # print('Query prompt: ', query_prompt)
-
-    query = str(text_query_llm.complete(query_prompt))
-    # print('Crafted Query: ', query)
-    context_from_text_index = text_index_query_engine(text_index, chunks, query)
-    print('\n\nContext from text index: ', context_from_text_index)
-    context_from_text_index = '\n'.join(context_from_text_index)
-
-    print('Done fetching context from text index...')
-
-    return context_from_text_index
-
-
-def fetch_vector_index_context(query):
-    print('Fetching context from vector index...')
-    response =  vector_index_query_engine.query(query)
-    print('\n\nContext from vector index: ', response)
-
-    print('Done fetching context from vector index...')
-    return response
-
-
-
-
-
-def RAG(query):
-    keywords_for_text_based_retrieval = extract_keywords(query)
-    print('Keywords for text-based retrieval: ', keywords_for_text_based_retrieval)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        thread_0 = executor.submit(fetch_vector_index_context, query)
-        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
-
-        wait([thread_0,thread_1])
-
-    # context_from_text_index = thread_0
-    context_from_vector_index =  thread_0.result().response
-    context_from_text_index = thread_1.result()
-
-    total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
-
-    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
-
-    print('RAG result: ', total_context)
-    return total_context
-
-
 def build_index():
     # cmd = f"shopt -s extglob; rm -rf data/!(uploaded_experiences)"
     # subprocess.run(cmd, shell=True) #
@@ -544,6 +474,82 @@ def build_or_load_index(refresh=False):
 
 
 
+
+
+
+
+def prepare_query_engines(refresh=False):
+    global vector_query_llm
+    if refresh==True:
+        vector_index, text_index, chunks = build_index()
+    else:
+        vector_index, text_index, chunks = build_or_load_index()
+
+    # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
+
+    vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
+    text_index_query_engine = search_text_index
+
+    return vector_index_query_engine, text_index_query_engine, text_index, chunks
+
+
+vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
+
+
+
+
+def fetch_text_index_context(conversation, text_query_llm, text_index_query_engine):
+    print('Fetching context from text index...')
+    query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
+    # print('Query prompt: ', query_prompt)
+
+    query = str(text_query_llm.complete(query_prompt))
+    # print('Crafted Query: ', query)
+    context_from_text_index = text_index_query_engine(text_index, chunks, query)
+    print('\n\nContext from text index: ', context_from_text_index)
+    context_from_text_index = '\n'.join(context_from_text_index)
+
+    print('Done fetching context from text index...')
+
+    return context_from_text_index
+
+
+def fetch_vector_index_context(query):
+    print('Fetching context from vector index...')
+    response =  vector_index_query_engine.query(query)
+    print('\n\nContext from vector index: ', response)
+
+    print('Done fetching context from vector index...')
+    return response
+
+
+
+
+
+def RAG(query):
+    keywords_for_text_based_retrieval = extract_keywords(query)
+    print('Keywords for text-based retrieval: ', keywords_for_text_based_retrieval)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        thread_0 = executor.submit(fetch_vector_index_context, query)
+        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
+
+        wait([thread_0,thread_1])
+
+    # context_from_text_index = thread_0
+    context_from_vector_index =  thread_0.result().response
+    context_from_text_index = thread_1.result()
+
+    total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
+
+    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
+
+    print('RAG result: ', total_context)
+    return total_context
+
+
+
+    
 
 
 

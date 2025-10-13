@@ -320,7 +320,7 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
 def extract_keywords(text):
     # Detect language
     lang = detect(text)
-    print('Detected language: ', lang)
+    print('Detected language: ', lang, '. Input: ', text)
     if lang.startswith('de'):
         nlp = nlp_de
         target_lang = 'en' #Assumes the language is English if it's nt German
@@ -329,6 +329,7 @@ def extract_keywords(text):
         target_lang = 'de'
 
     doc = nlp(text)
+    print('extract_keyword doc: ', doc)
     # Extract nouns and proper nouns as keywords
     keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and not token.is_stop]
     keywords = list(set(keywords))  # remove duplicates

@@ -8,6 +8,8 @@ import hashlib
 import re
 from dotenv import load_dotenv
 
+from concurrent.futures import ThreadPoolExecutor, wait
+
 from youtube_transcript_api import YouTubeTranscriptApi
 from llama_index.core.schema import Document as LlamaDocument
 

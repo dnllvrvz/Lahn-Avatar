@@ -240,10 +240,10 @@ def prepare_text_index(RAW_TEXT):
 # ------------------------------------------------------------------
 # 3. Dual-language search
 # ------------------------------------------------------------------
-def search_text_index(bm25, chunks, query:str, k_each:int=5):
-    keyword_list = query.split(', ')
-    query = ' '.join(keyword_list[:3])
-    trans_q = ' '.join(keyword_list[3:])
+def search_text_index(bm25, chunks, en_keywords, de_keywords, k_each:int=5):
+    # keyword_list = query.split(', ')
+    query = ' '.join(en_keywords) # keyword_list[:3])
+    trans_q = ' '.join(de_keywords) # keyword_list[3:])
 
     lang_orig  = 'en' #"de" if detect(query) == "de" else "en"
     lang_trans = 'de' #"en" if lang_orig == "de" else "de"
@@ -319,7 +319,7 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
 
 def extract_keywords(text):
     # Detect language
-    lang = detect(text)
+    lang = detect(text) #Works poorly for sentences that mix both languages
     print('Detected language: ', lang, '. Input: ', text)
     if lang.startswith('de'):
         nlp = nlp_de
@@ -331,7 +331,7 @@ def extract_keywords(text):
     doc = nlp(text)
     print('extract_keyword doc: ', doc)
     # Extract nouns and proper nouns as keywords
-    keywords = [token.text for token in doc if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
+    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and (not token.is_stop or token.pos_ == "PROPN")] #if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
     keywords = list(set(keywords))  # remove duplicates
     print('Keywords: ', keywords)
 
@@ -339,13 +339,17 @@ def extract_keywords(text):
     print('Translated keywords: ', translated_keywords)
 
     if target_lang == 'en':
-        all_keywords = translated_keywords + keywords
+        en_keywords = translated_keywords
+        de_keywords = keywords
+        # all_keywords = translated_keywords + keywords
     else:
-        all_keywords = keywords + translated_keywords
+        en_keywords = keywords
+        de_keywords = translated_keywords
+        # all_keywords = keywords + translated_keywords
 
-    keyword_list = ', '.join(all_keywords)
+    # keyword_list = ', '.join(all_keywords)
 
-    return keyword_list
+    return en_keywords, de_keywords #keyword_list
 
 
 
@@ -523,18 +527,20 @@ def fetch_vector_index_context(query):
 
 
 def RAG(query):
-    keywords_for_text_based_retrieval = extract_keywords(query)
-    print('Keywords for text-based retrieval: ', keywords_for_text_based_retrieval)
+    # keywords_for_text_based_retrieval 
+    en_keywords, de_keywords = extract_keywords(query)
+    print('Keywords for text-based retrieval: ', en_keywords, de_keywords)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         thread_0 = executor.submit(fetch_vector_index_context, query)
-        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
+        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, en_keywords, de_keywords)
 
         wait([thread_0,thread_1])
 
     # context_from_text_index = thread_0
     context_from_vector_index =  thread_0.result().response
     context_from_text_index = thread_1.result()
+    context_from_text_index = '\n'.join(context_from_text_index)
 
     total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
 

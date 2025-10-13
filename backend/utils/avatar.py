@@ -250,7 +250,7 @@ def search_text_index(bm25, chunks, en_keywords, de_keywords, k_each:int=5):
 
     # --- original language pass -----------------------------------
     q_tokens_o = tokenize(normalise(query), lang_orig)
-    print('Query recieved by Text Index searcher: ', ', '.join(keyword_list))
+    print('Query recieved by Text Index searcher: ', ', '.join(en_keywords + de_keywords))
     print('Keywords group 1: ', query)
     print('Keywords group 2: ', trans_q)
 
@@ -331,9 +331,10 @@ def extract_keywords(text):
     doc = nlp(text)
     print('extract_keyword doc: ', doc)
     # Extract nouns and proper nouns as keywords
-    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and (not token.is_stop or token.pos_ == "PROPN")] #if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
+    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN", "X") and (not token.is_stop or token.pos_ == "PROPN")] #if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
     keywords = list(set(keywords))  # remove duplicates
     print('Keywords: ', keywords)
+    #Handle empty keywords ***
 
     translated_keywords = translate_keywords_batch(keywords, target_lang=target_lang)
     print('Translated keywords: ', translated_keywords)

@@ -1,114 +1,22 @@
 #!/usr/bin/env python3
-"""
-Audio Model Comparison Script
-
-This script compares two AI audio processing approaches:
-1. OpenAI's GPT Realtime API (direct audio-to-audio)
-2. Cartesia STT -> OpenAI GPT-4 -> Cartesia TTS pipeline
-
-It measures response times and calculates costs for both approaches.
-"""
 
 import os, io
 import json
 import time
 import wave
-import struct
 import threading
 import queue
 from typing import Optional, Tuple
-from datetime import datetime
 import numpy as np
-# import sounddevice as sd
 import requests
 import websocket
 
-
-class AudioRecorder:
-    """Handles audio recording from the default microphone."""
-    
-    def __init__(self, duration: int = 5, sample_rate: int = 24000):
-        self.duration = duration
-        self.sample_rate = sample_rate
-        self.channels = 1
-    
-    def record(self, filename: str) -> None:
-        """Record audio from the default microphone and save to file."""
-        print(f"\n🎤 Recording for {self.duration} seconds...")
-        print("Please speak your message now...")
-        
-        # Record audio
-        audio_data = sd.rec(
-            int(self.sample_rate * self.duration),
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype='int16'
-        )
-        sd.wait()  # Wait for recording to finish
-        
-        print("✅ Recording complete!")
-        
-        # Save to WAV file
-        with wave.open(filename, 'wb') as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(2)  # 16-bit audio
-            wf.setframerate(self.sample_rate)
-            wf.writeframes(audio_data.tobytes())
-
-
-class AudioPlayer:
-    """Handles audio playback."""
-    
-    @staticmethod
-    def play_file(filename: str, sample_rate: Optional[int] = None) -> None:
-        """Play audio from a WAV file."""
-        try:
-            with wave.open(filename, 'rb') as wf:
-                # Get file properties
-                n_channels = wf.getnchannels()
-                sampwidth = wf.getsampwidth()
-                actual_rate = wf.getframerate()
-                n_frames = wf.getnframes()
-                duration = n_frames / actual_rate
-                
-                # Read audio data
-                audio_data = wf.readframes(n_frames)
-                audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                
-                print(f"🔊 Playing audio response:")
-                print(f"   Sample rate: {actual_rate}Hz")
-                print(f"   Duration: {duration:.2f} seconds")
-                print(f"   Frames: {n_frames}")
-                print(f"   Array size: {len(audio_array)}")
-                
-                # Ensure we're not clipping the audio
-                sd.play(audio_array, samplerate=actual_rate, blocking=True)
-                # Add a small delay to ensure playback completes
-                time.sleep(0.1)
-        except Exception as e:
-            print(f"❌ Error playing audio: {e}")
-            import traceback
-            traceback.print_exc()
-
-
-# import io
-# import wave
-
-# def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
-#     buf = io.BytesIO()
-#     with wave.open(buf, 'wb') as wf:
-#         wf.setnchannels(n_channels)
-#         wf.setsampwidth(sampwidth)  # 2 bytes for int16
-#         wf.setframerate(sample_rate)
-#         wf.writeframes(pcm_bytes)
-#     return buf.getvalue()
-
-
+from .avatar import RAG
 
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
-    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt = ''):
+    def __init__(self, api_key: str, model: str = "gpt-realtime"):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
@@ -126,7 +34,8 @@ class OpenAIRealtimeClient:
         self.response_complete = threading.Event()
         self.input_transcript = ""
         self.output_transcript = ""
-        self.prompt = prompt
+        self.awaiting_function_response = False
+        self.current_response_has_function_call = False
         
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""
@@ -148,11 +57,11 @@ class OpenAIRealtimeClient:
         audio_data = wf.readframes(frames)
         input_duration = frames / float(rate)
         
-        print(f"📊 Input audio: {rate}Hz, {input_duration:.2f}s, {len(audio_data)} bytes")
+        # print(f"📊 Input audio: {rate}Hz, {input_duration:.2f}s, {len(audio_data)} bytes")
         
         # Convert to 24kHz if needed (API requires 24kHz)
         if rate != 24000:
-            print(f"⚠️  Converting audio from {rate}Hz to 24000Hz for Realtime API...")
+            # print(f"⚠️  Converting audio from {rate}Hz to 24000Hz for Realtime API...")
             # Simple resampling - for production use scipy.signal.resample
             import numpy as np
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
@@ -169,7 +78,7 @@ class OpenAIRealtimeClient:
             # Use the raw audio data directly
             pcm_data = audio_data
         
-        print(f"📊 PCM data ready: {len(pcm_data)} bytes")
+        # print(f"📊 PCM data ready: {len(pcm_data)} bytes")
         
         # We'll calculate actual input tokens from the transcript after processing
         # (OpenAI provides input transcript via input_audio_transcription events)
@@ -185,6 +94,8 @@ class OpenAIRealtimeClient:
         self.response_complete.clear()
         self.input_transcript = ""
         self.output_transcript = ""
+        self.awaiting_function_response = False
+        self.current_response_has_function_call = False
         
         try:
             # Create WebSocket connection
@@ -219,7 +130,7 @@ class OpenAIRealtimeClient:
             
             # Send audio input
             if self.ws.sock and self.ws.sock.connected:
-                print("📤 Sending audio input...")
+                # print("📤 Sending audio input...")
                 
                 # Convert audio to base64 (not hex!)
                 import base64
@@ -232,7 +143,7 @@ class OpenAIRealtimeClient:
                 import numpy as np
                 audio_check = np.frombuffer(pcm_data, dtype=np.int16)
                 audio_max = np.max(np.abs(audio_check))
-                print(f"📊 Audio peak level: {audio_max} (out of 32767)")
+                # print(f"📊 Audio peak level: {audio_max} (out of 32767)")
                 
                 audio_base64 = base64.b64encode(pcm_data).decode('utf-8')
                 
@@ -252,7 +163,7 @@ class OpenAIRealtimeClient:
                     "type": "input_audio_buffer.commit"
                 }
                 self.ws.send(json.dumps(commit_event))
-                print("📤 Committed audio buffer")
+                # print("📤 Committed audio buffer")
                 
                 # Wait a bit for server to process the audio
                 time.sleep(0.5)
@@ -276,27 +187,27 @@ class OpenAIRealtimeClient:
                         # Calculate actual input tokens from transcript
                         if self.input_transcript:
                             actual_input_tokens = max(1, len(self.input_transcript) // 4)
-                            print(f"📊 Input tokens (from transcript): {actual_input_tokens}")
-                            print(f"   Input transcript: '{self.input_transcript}'")
+                            # print(f"📊 Input tokens (from transcript): {actual_input_tokens}")
+                            # print(f"   Input transcript: '{self.input_transcript}'")
                         else:
                             # Fallback to rough estimation if no input transcript
                             actual_input_tokens = int(input_duration * 100)
-                            print(f"📊 Input tokens (estimated - no transcript received): {actual_input_tokens}")
-                            print(f"   Warning: Input transcript was empty or not received")
+                            # print(f"📊 Input tokens (estimated - no transcript received): {actual_input_tokens}")
+                            # print(f"   Warning: Input transcript was empty or not received")
                         
                         # Calculate actual output tokens from transcript
                         if self.output_transcript:
                             # Simple token estimation: ~4 characters per token (rough approximation)
                             actual_output_tokens = max(1, len(self.output_transcript) // 4)
-                            print(f"✅ Received audio response ({len(response_audio)} bytes)")
-                            print(f"   Output tokens (from transcript): {actual_output_tokens}")
+                            # print(f"✅ Received audio response ({len(response_audio)} bytes)")
+                            # print(f"   Output tokens (from transcript): {actual_output_tokens}")
                         else:
                             # Fallback to duration-based estimation if no transcript
                             output_duration = len(response_audio) / (24000 * 2)  # 24kHz, 16-bit
                             actual_output_tokens = int(output_duration * 100)
                             print(f"✅ Received audio response ({len(response_audio)} bytes)")
                             print(f"   Expected duration: {output_duration:.2f} seconds")
-                            print(f"   Output tokens (estimated from duration): {actual_output_tokens}")
+                            # print(f"   Output tokens (estimated from duration): {actual_output_tokens}")
                     else:
                         error = "No audio data received"
                 else:
@@ -335,66 +246,51 @@ class OpenAIRealtimeClient:
         cost_info['output_transcript'] = self.output_transcript
         
         return response_audio, elapsed_time, cost_info
+    
+    def _get_info_about_lahn(self, query: str):
+        print('Function called: _get_info_about_lahn(). Query: ', query)
+        print('Activating RAG...')
+        context = RAG(query)
 
-
-    def _get_weather(self, city: str):
-        """Dummy weather lookup function."""
-        print(f"🌦️  Fetching weather for: {city}")
-        # You could call a real API here, but let’s fake it for now
-        fake_data = {
-            "Lagos": "30°C and sunny",
-            "Paris": "22°C and cloudy",
-            "New York": "18°C and windy"
-        }
-        return fake_data.get(city, f"Sorry, I don't have data for {city}.")
+        return context
 
     
     def _on_open(self, ws):
         """Handle WebSocket connection open."""
         print("✅ Connected to OpenAI Realtime API")
-        
-        # Send session.update to configure the session
-        session_update = {
-            "type": "session.update",
-            "session": {
-                "modalities": ["audio", "text"],
-                "instructions": self.prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
-                "voice": "alloy",
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "input_audio_transcription": {
-                    "model": "whisper-1"
-                },
-                "turn_detection": None,  # Disable auto turn detection to control manually
-                "temperature": 0.7
-            }
-        }
-        ws.send(json.dumps(session_update))
-        print("📋 Session configuration sent")
 
         # --- Add tool definitions ---
         tools = [
             {
                 "type": "function",
-                "name": "get_weather",
-                "description": "Get current weather information for a given city",
+                "name": "get_info_about_lahn",
+                "description": "Get relevant information about the Lahn",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "city": {"type": "string", "description": "City name"}
+                        "query": {"type": "string", "description": "Info required"}
                     },
-                    "required": ["city"]
+                    "required": ["query"]
                 }
             }
         ]
 
-        ws.send(json.dumps({
+
+        session_update = {
             "type": "session.update",
             "session": {
+                "modalities": ["audio", "text"],
+                "instructions": "You are a helpful AI assistant. Give very short, direct answers.",
+                "voice": "alloy",
+                "input_audio_format": "pcm16",
+                "output_audio_format": "pcm16",
+                "input_audio_transcription": {"model": "whisper-1"},
+                "turn_detection": None,
+                "temperature": 0.7,
                 "tools": tools
             }
-        }))
-        print("[INIT] Tool definitions sent.")
+        }
+        ws.send(json.dumps(session_update))
 
     
     def _on_message(self, ws, message):
@@ -407,9 +303,14 @@ class OpenAIRealtimeClient:
                 self.session_id = data.get('session', {}).get('id')
                 session_config = data.get('session', {})
                 print(f"📋 Session created: {self.session_id}")
-                print(f"   - Voice: {session_config.get('voice', 'N/A')}")
-                print(f"   - Audio format: {session_config.get('input_audio_format', 'N/A')} -> {session_config.get('output_audio_format', 'N/A')}")
+                # print(f"   - Voice: {session_config.get('voice', 'N/A')}")
+                # print(f"   - Audio format: {session_config.get('input_audio_format', 'N/A')} -> {session_config.get('output_audio_format', 'N/A')}")
             
+            elif event_type == 'response.created':
+                # Reset the flag for each new response
+                self.current_response_has_function_call = False
+                print(f"🆕 New response created")
+
             elif event_type == 'response.audio.delta':
                 # Accumulate audio chunks
                 delta = data.get('delta', '')
@@ -418,15 +319,24 @@ class OpenAIRealtimeClient:
                     import base64
                     audio_chunk = base64.b64decode(delta)
                     self.audio_buffer.extend(audio_chunk)
-                    print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
+                    # print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
             
             elif event_type == 'response.done':
                 # Full response complete
-                print("✅ Response generation complete")
-                # Check if we got any audio
-                if len(self.audio_buffer) == 0:
-                    print("⚠️  No audio data received in response")
-                self.response_complete.set()
+                print(f"✅ Response generation complete")
+                
+                # If this response was a function call, wait for the next response with audio
+                if self.current_response_has_function_call:
+                    print("⏳ Function call response complete, waiting for audio response...")
+                    # Don't set response_complete - we're waiting for the function result response
+                else:
+                    # This is either a direct response or the post-function-call audio response
+                    if len(self.audio_buffer) == 0 and not self.awaiting_function_response:
+                        print("⚠️  No audio data received in response")
+                    elif len(self.audio_buffer) > 0:
+                        print(f"✅ Audio response complete ({len(self.audio_buffer)} bytes)")
+                    self.response_complete.set()
+                    self.awaiting_function_response = False
             
             elif event_type == 'response.text.delta':
                 # Text response (shouldn't happen with audio modality)
@@ -473,41 +383,62 @@ class OpenAIRealtimeClient:
                 # The model is streaming function call arguments
                 name = data.get("name", "")
                 delta = data.get("delta", "")
-                print(f"🧩 Function call in progress: {name}, args delta: {delta}")
+                # print(f"🧩 Function call in progress: {name}, args delta: {delta}")
+                # Mark that this response contains a function call
+                self.current_response_has_function_call = True
 
             elif event_type == "response.function_call_arguments.done":
                 # The model finished providing the arguments
                 name = data.get("name")
                 arguments = data.get("arguments")
                 print(f"🧩 Function call requested: {name}({arguments})")
+                
+                # Mark that we're waiting for a function result response
+                self.awaiting_function_response = True
 
                 # Try to parse arguments safely
                 try:
                     args = json.loads(arguments) if arguments else {}
                 except json.JSONDecodeError:
                     args = {}
-                
+
                 # Route to your actual function
                 result = None
-                if name == "get_weather":
-                    result = self._get_weather(**args)
-                
+                if name == "get_info_about_lahn":
+                    result = self._get_info_about_lahn(**args)
+
                 # Send the result back to the model
                 if result is not None:
                     ws.send(json.dumps({
-                        "type": "response.output_text.delta",
-                        "delta": f"Function {name} returned: {result}"
+                        "type": "response.create",
+                        "response": {
+                            "modalities": ["audio", "text"],
+                            "instructions": f"The weather in {args.get('city')} is {result}."
+                        }
                     }))
-                    ws.send(json.dumps({"type": "response.output_text.done"}))
+                    print(f"📤 Sent function call response instructions for {name}")
+                    print("⏳ Waiting for audio response after function call...")
+
+
 
 
             elif event_type in ['response.audio.done', 'session.updated', 'input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'response.created', 'input_audio_buffer.cleared']:
                 print('Event recieved: ', event_type)
-            
+
+            elif event_type == 'response.output_item.added':
+                # Check if this output item is a function call
+                item = data.get('item', {})
+                item_type = item.get('type', '')
+                if item_type == 'function_call':
+                    self.current_response_has_function_call = True
+                    print(f"🧩 Function call output item detected")
+                print('Event recieved: response.output_item.added')
+                        
             # Debug: print other event types
             elif event_type not in ['response.content_part.added', 
-                                   'conversation.item.created', 'response.content_part.done',
-                                   'rate_limits.updated', 'conversation.item.input_audio_transcription.delta']:
+                       'conversation.item.created', 'response.content_part.done',
+                       'rate_limits.updated', 'conversation.item.input_audio_transcription.delta',
+                       'response.output_item.done']:
                 print(f"📨 Other event: {event_type}")
                 # For debugging, show more details for certain events
                 if event_type in ['response.output_item.added', 'response.output_item.done']:
@@ -525,6 +456,8 @@ class OpenAIRealtimeClient:
     def _on_close(self, ws, close_status_code, close_msg):
         """Handle WebSocket close."""
         print("🔌 Disconnected from OpenAI Realtime API")
+
+
 
 
 class CartesiaOpenAIPipeline:
@@ -700,6 +633,25 @@ class CartesiaOpenAIPipeline:
                     {"role": "system", "content": self.prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
                     {"role": "user", "content": text}
                 ],
+                "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_info_about_lahn",
+                        "description": "Get relevant information about the Lahn",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Info required."
+                                }
+                            },
+                            "required": ["query"]
+                        }
+                    }
+                }
+            ],
                 "temperature": 0.7
             }
             
@@ -710,6 +662,39 @@ class CartesiaOpenAIPipeline:
             )
             
             if response.status_code == 200:
+                msg = response.json()["choices"][0]["message"]
+
+                if "tool_calls" in msg:
+                    print('Function call detected. Calling...')
+                    for tool_call in msg["tool_calls"]:
+                        fn_name = tool_call["function"]["name"]
+                        args = json.loads(tool_call["function"]["arguments"])
+                        
+                        if fn_name == "get_info_about_lahn":
+                            result = self._get_info_about_lahn(**args)
+                            
+                            # Send the result back to the model
+                            followup = {
+                                "model": "gpt-4o",
+                                "messages": [
+                                    *data["messages"],  # include conversation so far
+                                    msg,
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tool_call["id"],
+                                        "content": json.dumps({"result": result})
+                                    }
+                                ]
+                            }
+                            followup_response = requests.post(
+                                "https://api.openai.com/v1/chat/completions",
+                                headers=headers,
+                                json=followup
+                            )
+                            print(followup_response.json())
+
+                            result = followup_response
+
                 result = response.json()
                 message = result['choices'][0]['message']['content']
                 
@@ -776,195 +761,3 @@ class CartesiaOpenAIPipeline:
         except Exception as e:
             print(f"❌ TTS error: {e}")
             return None
-
-
-def save_audio_response(audio_data: bytes, filename: str, sample_rate: int = 24000) -> None:
-    """Save raw audio data to a WAV file."""
-    with wave.open(filename, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(audio_data)
-
-
-def print_results(method: str, elapsed_time: float, cost_info: dict) -> None:
-    """Print formatted results for a test."""
-    print(f"\n{'='*60}")
-    print(f"📊 {method} Results")
-    print(f"{'='*60}")
-    print(f"⏱️  Response Time: {elapsed_time:.2f} seconds")
-    
-    if 'error' in cost_info and cost_info['error']:
-        print(f"❌ Error: {cost_info['error']}")
-    
-    if "OpenAI Realtime" in method:
-        model_name = cost_info.get('model', 'unknown')
-        print(f"🤖 Model: {model_name}")
-        print(f"📥 Input Tokens: {cost_info.get('input_tokens', 0):,}")
-        print(f"📤 Output Tokens: {cost_info.get('output_tokens', 0):,}")
-        print(f"💰 Input Cost: ${cost_info.get('input_cost', 0):.4f}")
-        print(f"💰 Output Cost: ${cost_info.get('output_cost', 0):.4f}")
-        print(f"💰 Total Cost: ${cost_info.get('total_cost', 0):.4f}")
-        
-        # Show transcripts if available
-        if 'input_transcript' in cost_info and cost_info['input_transcript']:
-            print(f"\n🎤 What you said: \"{cost_info['input_transcript']}\"")
-        if 'output_transcript' in cost_info and cost_info['output_transcript']:
-            print(f"💬 AI response: \"{cost_info['output_transcript']}\"")
-    else:
-        print(f"\n⏱️  Breakdown:")
-        print(f"   - Speech-to-Text: {cost_info.get('stt_time', 0):.2f}s")
-        print(f"   - GPT-4 Processing: {cost_info.get('llm_time', 0):.2f}s")
-        print(f"   - Text-to-Speech: {cost_info.get('tts_time', 0):.2f}s")
-        
-        print(f"\n💰 Cost Breakdown:")
-        print(f"   - STT Cost: ${cost_info.get('stt_cost', 0):.4f}")
-        print(f"   - LLM Cost: ${cost_info.get('llm_cost', 0):.4f}")
-        print(f"     • Input tokens: {cost_info.get('llm_input_tokens', 0):,}")
-        print(f"     • Output tokens: {cost_info.get('llm_output_tokens', 0):,}")
-        print(f"   - TTS Cost: ${cost_info.get('tts_cost', 0):.4f}")
-        print(f"   - Total Cost: ${cost_info.get('total_cost', 0):.4f}")
-        
-        # Show transcripts if available
-        if 'input_transcript' in cost_info and cost_info['input_transcript']:
-            print(f"\n🎤 What you said: \"{cost_info['input_transcript']}\"")
-        if 'output_transcript' in cost_info and cost_info['output_transcript']:
-            print(f"💬 AI response: \"{cost_info['output_transcript']}\"")
-
-
-
-
-
-def main():
-    """Main function to run the audio model comparison."""
-    print("\n🎯 Audio Model Comparison Test")
-    print("="*60)
-    
-    # Try to load from .env file
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        print('Loaded from .env file.')
-    except ImportError:
-        pass
-    
-    # Check for API keys
-
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    cartesia_api_key = os.getenv("CARTESIA_API_KEY")
-
-    print('Openai key: ', openai_api_key)
-    print('Cartesia key: ', cartesia_api_key)
-    
-    if not openai_api_key:
-        print("❌ Please set the OPENAI_API_KEY environment variable")
-        return
-    
-    if not cartesia_api_key:
-        print("❌ Please set the CARTESIA_API_KEY environment variable")
-        return
-    
-    # Initialize components
-    recorder = AudioRecorder(duration=5, sample_rate=24000)
-    player = AudioPlayer()
-    
-    # Record audio input
-    input_filename = "input_audio.wav"
-    recorder.record(input_filename)
-    
-    print("\n🚀 Starting tests...")
-    
-    # Test 1: OpenAI Realtime API (default model)
-    print("\n📡 Testing OpenAI Realtime API (default model)...")
-    realtime_client_default = OpenAIRealtimeClient(openai_api_key, model="gpt-realtime")
-    realtime_audio_default, realtime_time_default, realtime_cost_default = realtime_client_default.process_audio(input_filename)
-    
-    if realtime_audio_default:
-        realtime_response_file_default = "openai_realtime_default_response.wav"
-        save_audio_response(realtime_audio_default, realtime_response_file_default)
-        print("\n🔊 Playing OpenAI Realtime (default) response...")
-        player.play_file(realtime_response_file_default)
-        print("✅ OpenAI Realtime default response completed")
-    else:
-        print("❌ No audio received from OpenAI Realtime API (default)")
-    
-    # Brief pause before starting the next test
-    print("\n⏸️  Pausing for 2 seconds before next test...")
-    time.sleep(2)
-    
-    # Test 2: OpenAI Realtime API (GPT-4o)
-    print("\n" + "="*60)
-    print("📡 Testing OpenAI Realtime API (GPT-4o)...")
-    print("="*60)
-    realtime_client_mini = OpenAIRealtimeClient(openai_api_key, model="gpt-4o-realtime-preview")
-    realtime_audio_mini, realtime_time_mini, realtime_cost_mini = realtime_client_mini.process_audio(input_filename)
-    
-    if realtime_audio_mini:
-        realtime_response_file_mini = "openai_realtime_mini_response.wav"
-        save_audio_response(realtime_audio_mini, realtime_response_file_mini)
-        print("\n🔊 Playing OpenAI Realtime GPT-4o response...")
-        player.play_file(realtime_response_file_mini)
-        print("✅ OpenAI Realtime GPT-4o response completed")
-    else:
-        print("❌ No audio received from OpenAI Realtime API (GPT-4o)")
-    
-    # Brief pause before starting the next test
-    print("\n⏸️  Pausing for 2 seconds before next test...")
-    time.sleep(2)
-    
-    # Test 3: Cartesia pipeline
-    print("\n" + "="*60)
-    print("🔄 Now testing Cartesia + GPT-4o Pipeline...")
-    print("="*60)
-    
-    pipeline = CartesiaOpenAIPipeline(cartesia_api_key, openai_api_key)
-    pipeline_audio, pipeline_time, pipeline_cost = pipeline.process_audio(input_filename)
-    
-    if pipeline_audio:
-        pipeline_response_file = "cartesia_pipeline_response.wav"
-        save_audio_response(pipeline_audio, pipeline_response_file)
-        print("\n🔊 Playing Cartesia + GPT-4o response...")
-        player.play_file(pipeline_response_file)
-        print("✅ Cartesia pipeline response completed")
-    else:
-        print("❌ No audio received from Cartesia pipeline")
-    
-    # Print results
-    print_results("OpenAI Realtime API (default)", realtime_time_default, realtime_cost_default)
-    print_results("OpenAI Realtime API (GPT-4o)", realtime_time_mini, realtime_cost_mini)
-    print_results("Cartesia + GPT-4o Pipeline", pipeline_time, pipeline_cost)
-    
-    # Summary comparison
-    print(f"\n{'='*60}")
-    print("📈 COMPARISON SUMMARY")
-    print(f"{'='*60}")
-    
-    # Collect all results
-    results = [
-        ("OpenAI Realtime (default)", realtime_time_default, realtime_cost_default.get('total_cost', 0)),
-        ("OpenAI Realtime (GPT-4o)", realtime_time_mini, realtime_cost_mini.get('total_cost', 0)),
-        ("Cartesia + GPT-4o", pipeline_time, pipeline_cost.get('total_cost', 0))
-    ]
-    
-    # Filter out failed tests
-    valid_results = [(name, duration, cost) for name, duration, cost in results if duration > 0]
-    
-    if len(valid_results) >= 2:
-        # Speed comparison
-        print(f"\n⏱️  Speed Ranking (fastest to slowest):")
-        speed_sorted = sorted(valid_results, key=lambda x: x[1])
-        for i, (name, duration, cost) in enumerate(speed_sorted, 1):
-            print(f"   {i}. {name}: {duration:.2f}s")
-        
-        # Cost comparison  
-        print(f"\n💰 Cost Ranking (cheapest to most expensive):")
-        cost_sorted = sorted(valid_results, key=lambda x: x[2])
-        for i, (name, duration, cost) in enumerate(cost_sorted, 1):
-            print(f"   {i}. {name}: ${cost:.4f}")
-    
-    print(f"\n✅ Test completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*60}\n")
-
-
-if __name__ == "__main__":
-    main()

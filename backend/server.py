@@ -7,7 +7,7 @@ from datetime import datetime
 from llama_index.core.tools.query_engine import QueryEngineTool
 
 from utils.avatar import get_llm, build_index, build_or_load_index, fetch_system_prompt_from_gdoc, search_text_index
-from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, format_history_as_string #, azure_speech_response_func,
+from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, format_history_as_string, pcm_to_wav_bytes #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient, CartesiaOpenAIPipeline
 
 import os,threading
@@ -57,57 +57,6 @@ def prepare_query_engines(refresh=False):
 
 vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
 
-
-
-from langdetect import detect
-from deep_translator import GoogleTranslator
-import spacy
-
-# Load multilingual models (download with: python -m spacy download en_core_web_sm && python -m spacy download de_core_news_sm)
-nlp_en = spacy.load("en_core_web_sm")
-nlp_de = spacy.load("de_core_news_sm")
-
-
-def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
-    # Join all keywords into a comma-separated string
-    joined = ", ".join(keywords)
-    translated_text = GoogleTranslator(source=source_lang, target=target_lang).translate(joined)
-    # Split back into individual words
-    translated_keywords = [w.strip() for w in translated_text.split(",")]
-    return translated_keywords
-
-
-def extract_keywords(text):
-    # Detect language
-    lang = detect(text)
-    if lang.startswith('de'):
-        nlp = nlp_de
-        target_lang = 'en' #Assumes the language is English if it's nt German
-    else:
-        nlp = nlp_en
-        target_lang = 'de'
-
-    doc = nlp(text)
-    # Extract nouns and proper nouns as keywords
-    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and not token.is_stop]
-    keywords = list(set(keywords))  # remove duplicates
-
-    translated_keywords = translate_keywords_batch(keywords, target_lang=target_lang)
-
-    if target_lang == 'en':
-        all_keywords = translated_keywords + keywords
-    else:
-        all_keywords = keywords + translated_keywords
-
-    keyword_list = ', '.join(all_keywords)
-
-    return keyword_list
-
-    # return {
-    #     "original_language": lang,
-    #     "original_keywords": keywords,
-    #     'translated_keywords': translated_keywords
-    # }
 
 
 
@@ -160,26 +109,6 @@ def fetch_vector_index_context(query):
 
     print('Done fetching context from vector index...')
     return response
-
-
-def RAG(query):
-    keywords_for_text_based_retrieval = extract_keywords(query)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        thread_0 = executor.submit(fetch_vector_index_context, query)
-        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
-
-        wait([thread_0,thread_1])
-
-    # context_from_text_index = thread_0
-    context_from_vector_index =  thread_0.result().response
-    context_from_text_index = thread_1.result()
-
-    total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
-
-    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
-
-    return total_context
 
 
 
@@ -384,20 +313,6 @@ print('Loaded from .env file.')
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
-
-
-import io
-import wave
-
-def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
-    buf = io.BytesIO()
-    with wave.open(buf, 'wb') as wf:
-        wf.setnchannels(n_channels)
-        wf.setsampwidth(sampwidth)  # 2 bytes for int16
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_bytes)
-    return buf.getvalue()
-
 
 
 # Could pass audio_data directly to bypass file processing latency

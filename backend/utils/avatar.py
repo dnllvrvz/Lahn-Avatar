@@ -1,7 +1,6 @@
 import os
 import subprocess
 import datetime, requests
-# from rich.console import Console
 from docx import Document
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -15,7 +14,6 @@ from llama_index.core.schema import Document as LlamaDocument
 from llama_index.core import StorageContext, load_index_from_storage, Settings
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.indices.vector_store import VectorStoreIndex
-from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.readers.web import SimpleWebPageReader
 
 
@@ -209,20 +207,20 @@ def tokenize(text:str, lang:str) -> list[str]:
 # ------------------------------------------------------------------
 # 1. translation helper with cache
 # ------------------------------------------------------------------
-# _trans_cache: dict[tuple[str,str], str] = {}   # (text, target_lang) → translated
+_trans_cache: dict[tuple[str,str], str] = {}   # (text, target_lang) → translated
 
-# def translate(text:str, target_lang:str) -> str:
-#     """
-#     Translate 'text' to target language ('de' or 'en') using deep_translator.
-#     Caches results to avoid hitting rate limits.
-#     """
-#     key = (text, target_lang)
-#     if key in _trans_cache:
-#         return _trans_cache[key]
+def translate(text:str, target_lang:str) -> str:
+    """
+    Translate 'text' to target language ('de' or 'en') using deep_translator.
+    Caches results to avoid hitting rate limits.
+    """
+    key = (text, target_lang)
+    if key in _trans_cache:
+        return _trans_cache[key]
 
-#     translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
-#     _trans_cache[key] = translated
-#     return translated
+    translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
+    _trans_cache[key] = translated
+    return translated
 
 
 def prepare_text_index(RAW_TEXT):
@@ -298,6 +296,86 @@ def search_text_index(bm25, chunks, query:str, k_each:int=5):
 # ------------------------------------------------------------------
 # for tag, score, snippet in search_dual("Tell me about fish and their sizes"):
 #     print(f"[{tag}] {score:6.2f}  {snippet}")
+
+
+
+
+
+
+
+
+from langdetect import detect
+from deep_translator import GoogleTranslator
+import spacy
+
+# Load multilingual models (download with: python -m spacy download en_core_web_sm && python -m spacy download de_core_news_sm)
+nlp_en = spacy.load("en_core_web_sm")
+nlp_de = spacy.load("de_core_news_sm")
+
+
+
+
+def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
+    # Join all keywords into a comma-separated string
+    joined = ", ".join(keywords)
+    translated_text = GoogleTranslator(source=source_lang, target=target_lang).translate(joined)
+    # Split back into individual words
+    translated_keywords = [w.strip() for w in translated_text.split(",")]
+    return translated_keywords
+
+
+def extract_keywords(text):
+    # Detect language
+    lang = detect(text)
+    if lang.startswith('de'):
+        nlp = nlp_de
+        target_lang = 'en' #Assumes the language is English if it's nt German
+    else:
+        nlp = nlp_en
+        target_lang = 'de'
+
+    doc = nlp(text)
+    # Extract nouns and proper nouns as keywords
+    keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN") and not token.is_stop]
+    keywords = list(set(keywords))  # remove duplicates
+
+    translated_keywords = translate_keywords_batch(keywords, target_lang=target_lang)
+
+    if target_lang == 'en':
+        all_keywords = translated_keywords + keywords
+    else:
+        all_keywords = keywords + translated_keywords
+
+    keyword_list = ', '.join(all_keywords)
+
+    return keyword_list
+
+
+
+
+
+
+
+def RAG(query):
+    keywords_for_text_based_retrieval = extract_keywords(query)
+    print('Keywords for text-based retrieval: ', keywords_for_text_based_retrieval)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        thread_0 = executor.submit(fetch_vector_index_context, query)
+        thread_1 = executor.submit(text_index_query_engine, text_index, chunks, keywords_for_text_based_retrieval)
+
+        wait([thread_0,thread_1])
+
+    # context_from_text_index = thread_0
+    context_from_vector_index =  thread_0.result().response
+    context_from_text_index = thread_1.result()
+
+    total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
+
+    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
+
+    print('RAG result: ', total_context)
+    return total_context
 
 
 def build_index():
@@ -415,3 +493,67 @@ def build_or_load_index(refresh=False):
     
     return vector_index, text_index, chunks
 
+
+
+
+
+
+
+# #For caching translations relevant to extracting context from Text-based Index:
+
+# import hashlib
+# from deep_translator import GoogleTranslator
+
+# # In-memory translation cache
+# _trans_cache = {} #Save to file, for persistence.
+
+# def _cache_key(word: str, target_lang: str) -> str:
+#     """
+#     Generate a hash key for each word-language pair.
+#     """
+#     key_str = f"{word.lower().strip()}::{target_lang}"
+#     return hashlib.md5(key_str.encode("utf-8")).hexdigest()
+
+# def translate_batch(words, target_lang: str):
+#     """
+#     Translates a list of words to target_lang, using per-word caching.
+#     Only uncached words trigger API calls.
+#     """
+#     results = []
+#     uncached_words = []
+#     uncached_indices = []
+
+#     # 1️⃣ Check cache for each word
+#     for i, word in enumerate(words):
+#         key = _cache_key(word, target_lang)
+#         if key in _trans_cache:
+#             results.append(_trans_cache[key])
+#         else:
+#             results.append(None)
+#             uncached_words.append(word)
+#             uncached_indices.append(i)
+
+#     # 2️⃣ Translate uncached words in a batch (if API allows)
+#     if uncached_words:
+#         # GoogleTranslator can take a single string — we join by newline for batch translation
+#         text_to_translate = "\n".join(uncached_words)
+#         translated_text = GoogleTranslator(source="auto", target=target_lang).translate(text_to_translate)
+        
+#         # deep_translator may return one big string, so split it back
+#         translated_list = [t.strip() for t in translated_text.split("\n") if t.strip()]
+
+#         # Safety: align lengths
+#         if len(translated_list) != len(uncached_words):
+#             raise ValueError("Batch translation mismatch between input and output sizes.")
+
+#         # 3️⃣ Store each translation in cache and fill results
+#         for idx, word, translated in zip(uncached_indices, uncached_words, translated_list):
+#             key = _cache_key(word, target_lang)
+#             _trans_cache[key] = translated
+#             results[idx] = translated
+
+#             # optional reverse cache
+#             reverse_key = _cache_key(translated, "en" if target_lang != "en" else "auto")
+#             _trans_cache[reverse_key] = word
+
+#     return results

@@ -310,12 +310,18 @@ nlp_de = spacy.load("de_core_news_sm")
 
 
 def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
-    # Join all keywords into a comma-separated string
-    joined = ", ".join(keywords)
-    translated_text = GoogleTranslator(source=source_lang, target=target_lang).translate(joined)
-    # Split back into individual words
-    translated_keywords = [w.strip() for w in translated_text.split(",")]
-    return translated_keywords
+    if target_lang == 'de':
+        prefix = 'Word: '
+    else:
+        prefix = 'Wort: '
+
+    translator = GoogleTranslator(source=source_lang, target=target_lang)
+    joined = ". ".join([prefix+w for w in keywords])
+    out = translator.translate(joined)
+    
+    # Extract translations after 'Wort:' or similar
+    parts = [p.strip().replace('.','') for p in out.replace("Wort:", "Word:").split("Word:") if p.strip()]
+    return parts
 
 
 def extract_keywords(text):
@@ -552,7 +558,7 @@ def RAG(query, text_index_query=None):
 
     total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
 
-    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: ' + total_context
+    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info. Also make sure to reply in the same language the user messaged you in -not necessarily the language in which this context is expressed. If the user messaged you in English, reply in English as well, even if this context is in German. ' + total_context
 
     print('-----\n\nRAG result: ', total_context)
     return total_context

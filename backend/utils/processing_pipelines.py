@@ -280,7 +280,7 @@ class OpenAIRealtimeClient:
                     "Get relevant information about the Lahn."
                     "Use for general factual or historical questions about the Lahn River "
                     "that do NOT involve live measurements or sensor data."
-                    )
+                    ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -700,7 +700,7 @@ class CartesiaOpenAIPipeline:
                             "Get relevant information about the Lahn"
                             "Use for general factual or historical questions about the Lahn River "
                             "that do NOT involve live measurements or sensor data."
-                            )
+                            ),
                         "parameters": {
                             "type": "object",
                             "properties": {

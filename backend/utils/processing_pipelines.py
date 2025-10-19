@@ -11,7 +11,8 @@ import numpy as np
 import requests
 import websocket
 
-from .avatar import RAG
+from .avatar import RAG, sensor_query_llm
+from .utils import LahnSensorsTool
 
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
@@ -256,6 +257,15 @@ class OpenAIRealtimeClient:
 
         return context
 
+    def _get_sensor_data(self, query:str):
+        print('Function called: _get_sensor_data(). Query: ', query)
+        print('Calling Lahn Sensors Tool...')
+
+        analysis = LahnSensorsTool(query)
+        print('Analysis: ', analysis)
+
+        return analysis
+
     
     def _on_open(self, ws):
         """Handle WebSocket connection open."""
@@ -266,11 +276,36 @@ class OpenAIRealtimeClient:
             {
                 "type": "function",
                 "name": "get_info_about_lahn",
-                "description": "Get relevant information about the Lahn",
+                "description": ("Get relevant information about the Lahn."
+                    "Use for general factual or historical questions about the Lahn River "
+                    "that do NOT involve live measurements or sensor data.")
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Info required"}
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "type": "function",
+                "name": "get_sensor_data",
+                "description": (
+                    "Use ONLY for questions involving Lahn Atlas live data readings. Fetch and analyze live sensor data from the Lahn Atlas. "
+                    "Use this for questions involving temperature, pH, dissolved oxygen, "
+                    "electrical conductivity (water), or humidity and CO₂ (air). "
+                    "The function can perform computations like averages, minimums, maximums, or trends over time."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Natural-language question about Lahn Atlas sensor readings, e.g. "
+                                "'What was the lowest temperature last week?' or 'Show the trend in pH over the past day.'"
+                            )
+                        }
                     },
                     "required": ["query"]
                 }
@@ -408,6 +443,8 @@ class OpenAIRealtimeClient:
                 result = None
                 if name == "get_info_about_lahn":
                     result = self._get_info_about_lahn(**args)
+                elif name == "get_sensor_data":
+                    result = self._get_sensor_data(**args)
 
                 # Send the result back to the model
                 if result is not None:
@@ -580,6 +617,15 @@ class CartesiaOpenAIPipeline:
         context = RAG(query)
 
         return context
+
+    def _get_sensor_data(self, query:str):
+        print('Function called: _get_sensor_data(). Query: ', query)
+        print('Calling Lahn Sensors Tool...')
+
+        analysis = LahnSensorsTool(query)
+        print('Analysis: ', analysis)
+
+        return analysis
     
     def _speech_to_text(self, audio_input) -> Optional[str]:
         """Convert speech to text using Cartesia."""
@@ -648,7 +694,9 @@ class CartesiaOpenAIPipeline:
                     "type": "function",
                     "function": {
                         "name": "get_info_about_lahn",
-                        "description": "Get relevant information about the Lahn",
+                        "description": ("Get relevant information about the Lahn"
+                            "Use for general factual or historical questions about the Lahn River "
+                            "that do NOT involve live measurements or sensor data.")
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -659,6 +707,29 @@ class CartesiaOpenAIPipeline:
                             },
                             "required": ["query"]
                         }
+                    }
+                },
+                {
+                    "type": "function",
+                    "name": "get_sensor_data",
+                    "description": (
+                        "Use ONLY for questions involving Lahn Atlas live data readings. Fetch and analyze live sensor data from the Lahn Atlas. "
+                        "Use this for questions involving temperature, pH, dissolved oxygen, "
+                        "electrical conductivity (water), or humidity and CO₂ (air). "
+                        "The function can perform computations like averages, minimums, maximums, or trends over time."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": (
+                                    "Natural-language question about Lahn Atlas sensor readings, e.g. "
+                                    "'What was the lowest temperature last week?' or 'Show the trend in pH over the past day.'"
+                                )
+                            }
+                        },
+                        "required": ["query"]
                     }
                 }
             ],
@@ -682,6 +753,8 @@ class CartesiaOpenAIPipeline:
                         
                         if fn_name == "get_info_about_lahn":
                             result = self._get_info_about_lahn(**args)
+                        elif fn_name == "get_sensor_data":
+                            result = self._get_sensor_data(**args)
                             
                             # Send the result back to the model
                             followup = {

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG #, build_index, build_or_load_index, search_text_index
+from utils.avatar import get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm #, build_index, build_or_load_index, search_text_index
 from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient, CartesiaOpenAIPipeline
 
@@ -26,18 +26,16 @@ llm_second_choice = "hrz-chat-small"
 
 llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, for consistency, since they're essentially the same thing. THis has llm.chat.completions.create around line 119. Doesnt work with gwdg format
 
-
-#This should be a very technically capable model, to cut down the chances of buggy-code-related issues.
-sensor_query_llm, _ = get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
-
 debate_summary_llm, _= get_llm('gwdg', "mistral-large-instruct", system_prompt= '')
 print('LLM initialized.')
 
-api_tool = QueryEngineTool.from_defaults(
-        query_engine=LahnSensorsTool(sensor_query_llm),
-        name=LahnSensorsTool.name,
-        description=LahnSensorsTool.description,
-    )
+# api_tool = QueryEngineTool.from_defaults(
+#         query_engine=LahnSensorsTool(sensor_query_llm),
+#         name=LahnSensorsTool.name,
+#         description=LahnSensorsTool.description,
+#     )
+
+sensor_query_tool = LahnSensorsTool(sensor_query_llm)
 
 
 
@@ -71,6 +69,7 @@ topic_descriptions = {
 def chat():
     global llm, llm_choice, system_prompt
     print('Chat request received.')
+
     data = request.get_json()
     prompt = data.get("prompt", "")
     conversation = data.get("history", "")
@@ -83,7 +82,6 @@ def chat():
     else:
         system_prompt_ = system_prompt
 
-    # print('\nSystem prompt: ', system_prompt_[-300:])
 
     chat_history = []
 
@@ -94,30 +92,13 @@ def chat():
 
     chat_history.insert(0, {'role':'system', 'content':system_prompt_})
 
-    results = ''
-
     print('Obtaining information for the LLM...')
-    # print('Fetching context from indexes...')
-    query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
-    
+
+    query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
     text_index_query = fetch_text_index_query(conversation)
     context = RAG(query, text_index_query = text_index_query)
-    # with ThreadPoolExecutor(max_workers=2) as executor:
-    #     thread_0 = executor.submit(fetch_vector_index_context, query)
-    #     thread_1 = executor.submit(fetch_text_index_context, conversation, text_query_llm, text_index_query_engine)
 
-    #     wait([thread_0,thread_1])
-
-    #     # context_from_text_index = thread_0
-    #     context_from_vector_index =  thread_0.result().response
-    #     context_from_text_index = thread_1.result()
-
-
-
-
-    total_context = context #'\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
-    # results += '\nHere is the output of get_relevant_Lahn_context(): '+context
-
+    total_context = context 
     chat_completion = llm.chat.completions.create(
           messages=chat_history+[{'role':'system', 'content':'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info: '+total_context + ' . You can call analyze_sensor_data() if environmental data readings are relevant to the user\'s query.'}],
           model= llm_choice,
@@ -135,11 +116,12 @@ def chat():
         response = response[response.find('user_query="')+12:]
         query = response[:response.find('")')]
         print('Query: ', query)
-        analysis = str(api_tool(query))
+        # analysis = str(api_tool(query))
+        analysis = str(sensor_query_tool(query))
         print('Analysis: ', analysis)
-        results += '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call.'
+        results = '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call.'
 
-    if len(results)>0:
+    # if len(results)>0:
         print('Passing analysis results to LLM: ', chat_history+[{'role':'system', 'content':results}])
         chat_completion_2 = llm.chat.completions.create(
               messages=chat_history+[{'role':'system', 'content':results}],
@@ -158,10 +140,7 @@ def chat():
 
         return jsonify({"reply": response_2})
 
-    # response = chat_completion.choices[0].message.content
     response = response.replace('*','')
-
-    # print('Avatar response:', response)
 
     return jsonify({"reply": response})
 

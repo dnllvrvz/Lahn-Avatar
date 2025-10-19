@@ -3,7 +3,7 @@ import numpy as np
 
 # import soundfile as sf
 import torch, torchaudio
-import subprocess
+import subprocess, time
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 
@@ -66,20 +66,36 @@ class LahnSensorsTool:
     def __init__(self, llm):
         # store whichever LLM you pass in (e.g. get_llm("mistral-large-instruct"))
         self.llm = llm
+        self.cache_ttl=1800
+
+    def _get_df(self):
+        now = time.time()
+        if self._cached_df is None or (now - self._last_fetch) > self.cache_ttl:
+            print("Fetching new sensor data...")
+            self._cached_df = fetch_lahn_sensors_df()
+            self._last_fetch = now
+        return self._cached_df
 
     def __call__(self, query: str) -> str:
         print('Calling Lahn Sensors Tool...')
-        # fetch fresh data
-        df = fetch_lahn_sensors_df()
-        # spin up a Pandas‐powered engine on it
-        engine = PandasQueryEngine(
-            df=df,
-            llm=self.llm,             # or your preferred LLM wrapper
-            verbose=True,             # shows generated pandas code
-            synthesize_response=True, # narrative answer
-        )
-        # run the query & return the natural‐language result
-        result = engine.query(query)
+        df = self._get_df()
+        if self._engine is None:
+            self._engine = PandasQueryEngine(df=df, llm=self.llm, verbose=True, synthesize_response=False)
+        else:
+            self._engine.df = df
+
+
+        # # fetch fresh data
+        # # df = fetch_lahn_sensors_df()
+        # # spin up a Pandas‐powered engine on it
+        # engine = PandasQueryEngine(
+        #     df=df,
+        #     llm=self.llm,             # or your preferred LLM wrapper
+        #     verbose=True,             # shows generated pandas code
+        #     synthesize_response=True, # narrative answer
+        # )
+        # # run the query & return the natural‐language result
+        result = self._engine.query(query)
         return result.response
 
     def query(self, query_str: str) -> str:

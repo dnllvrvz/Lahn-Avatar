@@ -554,7 +554,7 @@ def RAG(query, text_index_query=None):
         wait([thread_0,thread_1])
 
     # context_from_text_index = thread_0
-    context_from_vector_index =  thread_0.result().response
+    context_from_vector_index =  thread_0.result() #.response
     context_from_text_index = thread_1.result()
     context_from_text_index = '\n'.join(context_from_text_index)
 

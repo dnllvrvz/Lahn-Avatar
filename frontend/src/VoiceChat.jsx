@@ -10,7 +10,7 @@ export default function VoiceChatSimple() {
   const [avatarVolume, setAvatarVolume] = useState(0);
   const [avatarAudioUrl, setAvatarAudioUrl] = useState(null);
   const [avatarThinking, setAvatarThinking] = useState(false);
-  const [avatarThinking, setAvatarThinking] = useState(false);
+  // const [avatarThinking, setAvatarThinking] = useState(false);
 
 
   const mediaRecorderRef = useRef(null);

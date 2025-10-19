@@ -2,19 +2,42 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 
-export default function VoiceChatSimple() {
+export default function VoiceChatDynamic() {
   const [isRecording, setIsRecording] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
+  const [userVolume, setUserVolume] = useState(0);
   const [avatarPlaying, setAvatarPlaying] = useState(false);
+  const [avatarVolume, setAvatarVolume] = useState(0);
   const [avatarAudioUrl, setAvatarAudioUrl] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const avatarAudioRef = useRef(null);
+  const userAudioCtxRef = useRef(null);
+  const avatarAudioCtxRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
-  // Start recording user speech
+  // === Start recording and analyze mic volume ===
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audioCtx = new AudioContext();
+    userAudioCtxRef.current = audioCtx;
+
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const updateVolume = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      setUserVolume(avg / 255);
+      if (isRecording) animationFrameRef.current = requestAnimationFrame(updateVolume);
+    };
+    updateVolume();
+
     mediaRecorderRef.current = new MediaRecorder(stream);
     audioChunksRef.current = [];
 
@@ -26,25 +49,20 @@ export default function VoiceChatSimple() {
 
     mediaRecorderRef.current.onstop = async () => {
       setUserSpeaking(false);
+      setUserVolume(0);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+
       const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
 
-      const resp = await fetch("/api/voice-chat", {
-          method: "POST",
-          body: formData,
-        });
+      const formData = new FormData();
+      formData.append("audio", blob, "recording.webm");
 
-      // Get audio back as Blob
+      // Send to backend
+      const resp = await fetch("/api/voice-chat", { method: "POST", body: formData });
       const avatarBlob = await resp.blob();
-      // Simulate sending to backend and receiving avatar audio
-      // const avatarBlob = new Blob([blob], { type: "audio/webm" }); // replace with API call
       const url = URL.createObjectURL(avatarBlob);
       setAvatarAudioUrl(url);
-      setAvatarPlaying(true);
-
-      const audio = new Audio(url);
-      avatarAudioRef.current = audio;
-      audio.play();
-      audio.onended = () => setAvatarPlaying(false);
+      playAvatarAudio(url);
     };
 
     mediaRecorderRef.current.start();
@@ -54,6 +72,40 @@ export default function VoiceChatSimple() {
   const stopRecording = () => {
     mediaRecorderRef.current.stop();
     setIsRecording(false);
+  };
+
+  // === Play avatar audio and analyze volume ===
+  const playAvatarAudio = (url) => {
+    const audio = new Audio(url);
+    avatarAudioRef.current = audio;
+
+    const audioCtx = new AudioContext();
+    avatarAudioCtxRef.current = audioCtx;
+    const source = audioCtx.createMediaElementSource(audio);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const updateVolume = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      setAvatarVolume(avg / 255);
+      if (!audio.paused) animationFrameRef.current = requestAnimationFrame(updateVolume);
+      else setAvatarVolume(0);
+    };
+
+    audio.onended = () => {
+      setAvatarPlaying(false);
+      setAvatarVolume(0);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+
+    setAvatarPlaying(true);
+    audio.play();
+    updateVolume();
   };
 
   const toggleAvatarPlayback = () => {
@@ -67,22 +119,28 @@ export default function VoiceChatSimple() {
     }
   };
 
+  // === Ripple style helper ===
+  const getRippleStyle = (volume, baseSize, color) => ({
+    width: `${baseSize}px`,
+    height: `${baseSize}px`,
+    borderRadius: "50%",
+    backgroundColor: color,
+    transform: `scale(${0.5 + volume * 2})`,
+    opacity: 0.5 + volume * 0.5,
+    transition: "transform 0.05s linear, opacity 0.05s linear",
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 flex flex-col items-center justify-center p-4">
-      <h1 className="text-3xl font-bold text-amber-700 mb-8">
-        Lahn River: Voice Chat
-      </h1>
+      <h1 className="text-3xl font-bold text-amber-700 mb-8">Lahn River: Voice Chat</h1>
 
-      {/* User speaking ripples */}
-      <div className="mb-12">
+      {/* User ripples */}
+      <div className="mb-12 relative">
         <AnimatePresence>
           {userSpeaking && (
             <motion.div
-              className="w-32 h-32 rounded-full bg-lime-300"
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.4, 1] }}
-              exit={{ scale: 1 }}
-              transition={{ repeat: Infinity, duration: 1 }}
+              className="absolute"
+              style={getRippleStyle(userVolume, 128, "#a3e635")}
             />
           )}
         </AnimatePresence>
@@ -91,16 +149,13 @@ export default function VoiceChatSimple() {
         </div>
       </div>
 
-      {/* Avatar response ripples */}
+      {/* Avatar ripples */}
       <div className="mb-8 relative">
         <AnimatePresence>
           {avatarPlaying && (
             <motion.div
-              className="w-48 h-48 rounded-full bg-cyan-300 mx-auto"
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.5, 1] }}
-              exit={{ scale: 1 }}
-              transition={{ repeat: Infinity, duration: 1 }}
+              className="absolute"
+              style={getRippleStyle(avatarVolume, 192, "#22d3ee")}
             />
           )}
         </AnimatePresence>

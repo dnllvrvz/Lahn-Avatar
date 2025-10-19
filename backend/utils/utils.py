@@ -67,6 +67,8 @@ class LahnSensorsTool:
         # store whichever LLM you pass in (e.g. get_llm("mistral-large-instruct"))
         self.llm = llm
         self.cache_ttl=1800
+        self._cached_df = None
+        self._engine = None
 
     def _get_df(self):
         now = time.time()

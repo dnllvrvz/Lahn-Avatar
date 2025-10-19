@@ -134,7 +134,7 @@ export default function VoiceChatSimple() {
       <div className="mb-8 flex flex-col items-center relative">
         <motion.div
           className="w-32 h-32 rounded-full bg-lime-300 absolute"
-          style={{ zIndex: 0 }}
+          style={{ zIndex: 0, pointerEvents: "none"  }}
           animate={{ scale: userRippleScale, opacity: userSpeaking ? 0.7 : 0 }}
           transition={{ duration: 0.1 }}
         />
@@ -147,7 +147,7 @@ export default function VoiceChatSimple() {
       <div className="mb-8 flex flex-col items-center relative">
         <motion.div
           className="w-48 h-48 rounded-full bg-cyan-300 absolute"
-          style={{ zIndex: 0 }}
+          style={{ zIndex: 0, pointerEvents: "none"  }}
           animate={{ scale: avatarRippleScale, opacity: avatarPlaying ? 0.7 : 0 }}
           transition={{ duration: 0.1 }}
         />

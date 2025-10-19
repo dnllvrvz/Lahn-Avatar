@@ -276,9 +276,11 @@ class OpenAIRealtimeClient:
             {
                 "type": "function",
                 "name": "get_info_about_lahn",
-                "description": ("Get relevant information about the Lahn."
+                "description": (
+                    "Get relevant information about the Lahn."
                     "Use for general factual or historical questions about the Lahn River "
-                    "that do NOT involve live measurements or sensor data.")
+                    "that do NOT involve live measurements or sensor data."
+                    )
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -694,9 +696,11 @@ class CartesiaOpenAIPipeline:
                     "type": "function",
                     "function": {
                         "name": "get_info_about_lahn",
-                        "description": ("Get relevant information about the Lahn"
+                        "description": (
+                            "Get relevant information about the Lahn"
                             "Use for general factual or historical questions about the Lahn River "
-                            "that do NOT involve live measurements or sensor data.")
+                            "that do NOT involve live measurements or sensor data."
+                            )
                         "parameters": {
                             "type": "object",
                             "properties": {

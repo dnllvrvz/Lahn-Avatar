@@ -9,6 +9,9 @@ export default function VoiceChatSimple() {
   const [avatarPlaying, setAvatarPlaying] = useState(false);
   const [avatarVolume, setAvatarVolume] = useState(0);
   const [avatarAudioUrl, setAvatarAudioUrl] = useState(null);
+  const [avatarThinking, setAvatarThinking] = useState(false);
+  const [avatarThinking, setAvatarThinking] = useState(false);
+
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -58,6 +61,8 @@ export default function VoiceChatSimple() {
       const formData = new FormData();
       formData.append("audio", blob, "recording.webm");
 
+      setAvatarThinking(true);
+
       // Send to backend
       const resp = await fetch("/api/voice-chat", {
         method: "POST",
@@ -68,6 +73,7 @@ export default function VoiceChatSimple() {
       const url = URL.createObjectURL(avatarBlob);
       setAvatarAudioUrl(url);
       setAvatarPlaying(true);
+      setAvatarThinking(false);
 
       const audio = new Audio(url);
       avatarAudioRef.current = audio;
@@ -142,6 +148,11 @@ export default function VoiceChatSimple() {
           {userSpeaking ? "You are speaking…" : "Press mic to speak"}
         </div>
       </div>
+
+      {avatarThinking && (
+        <div className="text-lime-700 italic mt-4">the river contemplates…</div>
+      )}
+
 
       {/* Avatar ripple */}
       <div className="mb-8 flex flex-col items-center relative">

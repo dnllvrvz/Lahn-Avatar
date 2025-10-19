@@ -456,7 +456,7 @@ class OpenAIRealtimeClient:
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: (Be sure to respond in the same language as the user)"+result
+                            "instructions": "Function response: (What language did the user speak to you in? Respond in precisely the same language)"+result
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")

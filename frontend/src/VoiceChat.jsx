@@ -1,18 +1,18 @@
-import { useState, useRef } from "react";
-import { motion } from "framer-motion";
-import { Card } from "@/components/ui/card";
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-// import { Select } from "@/components/ui/select"; // assuming you have this, otherwise use <select>
-import { Input } from "@/components/ui/input";
 
-export default function VoiceChat() {
+export default function VoiceChatSimple() {
   const [isRecording, setIsRecording] = useState(false);
-  const [pipeline, setPipeline] = useState("OpenAI gpt-realtime");
-  const [messages, setMessages] = useState([]);
-  const [isThinking, setIsThinking] = useState(false);
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  const [avatarPlaying, setAvatarPlaying] = useState(false);
+  const [avatarAudioUrl, setAvatarAudioUrl] = useState(null);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const avatarAudioRef = useRef(null);
 
+  // Start recording user speech
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorderRef.current = new MediaRecorder(stream);
@@ -22,47 +22,29 @@ export default function VoiceChat() {
       if (e.data.size > 0) audioChunksRef.current.push(e.data);
     };
 
+    mediaRecorderRef.current.onstart = () => setUserSpeaking(true);
+
     mediaRecorderRef.current.onstop = async () => {
+      setUserSpeaking(false);
       const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      const formData = new FormData();
-      formData.append("audio", blob, "recording.webm");
-      formData.append("pipeline", pipeline);
 
-      setIsThinking(true);
-
-      try {
-        // const resp = await fetch("/api/voice-chat", {
-        //   method: "POST",
-        //   body: formData,
-        // });
-        // const { reply } = await resp.json();
-        // setMessages((prev) => [...prev, { sender: "avatar", text: reply }]);
-
-
-        const resp = await fetch("/api/voice-chat", {
+      const resp = await fetch("/api/voice-chat", {
           method: "POST",
           body: formData,
         });
 
-        // Get audio back as Blob
-        const audioBlob = await resp.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
+      // Get audio back as Blob
+      const avatarBlob = await resp.blob();
+      // Simulate sending to backend and receiving avatar audio
+      // const avatarBlob = new Blob([blob], { type: "audio/webm" }); // replace with API call
+      const url = URL.createObjectURL(avatarBlob);
+      setAvatarAudioUrl(url);
+      setAvatarPlaying(true);
 
-        // Play immediately
-        const audio = new Audio(audioUrl);
-        audio.play();
-
-        // (optional) Add a "message" marker so the chat shows the avatar spoke
-        setMessages((prev) => [
-          ...prev,
-          { sender: "avatar", text: "[🎵 audio reply]" },
-        ]);
-
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsThinking(false);
-      }
+      const audio = new Audio(url);
+      avatarAudioRef.current = audio;
+      audio.play();
+      audio.onended = () => setAvatarPlaying(false);
     };
 
     mediaRecorderRef.current.start();
@@ -74,74 +56,81 @@ export default function VoiceChat() {
     setIsRecording(false);
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-4 flex flex-col items-center">
-      <motion.h1
-        className="text-3xl font-poetic text-amber-700 mb-6"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1 }}
-      >
-        Lahn River: Voice Conversations
-      </motion.h1>
+  const toggleAvatarPlayback = () => {
+    if (!avatarAudioRef.current) return;
+    if (avatarPlaying) {
+      avatarAudioRef.current.pause();
+      setAvatarPlaying(false);
+    } else {
+      avatarAudioRef.current.play();
+      setAvatarPlaying(true);
+    }
+  };
 
-      <div className="flex items-center space-x-4 mb-6">
-        <label className="font-poetic text-stone-700">Pipeline:</label>
-        <select
-          value={pipeline}
-          onChange={(e) => setPipeline(e.target.value)}
-          className="border rounded p-2 bg-white font-poetic"
-        >
-          <option value="OpenAI gpt-realtime">OpenAI gpt-realtime</option>
-          <option value="OpenAI gpt4o">OpenAI gpt4o</option>
-          <option value="Cartesia">Cartesia</option>
-        </select>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 flex flex-col items-center justify-center p-4">
+      <h1 className="text-3xl font-bold text-amber-700 mb-8">
+        Lahn River: Voice Chat
+      </h1>
+
+      {/* User speaking ripples */}
+      <div className="mb-12">
+        <AnimatePresence>
+          {userSpeaking && (
+            <motion.div
+              className="w-32 h-32 rounded-full bg-lime-300"
+              initial={{ scale: 1 }}
+              animate={{ scale: [1, 1.4, 1] }}
+              exit={{ scale: 1 }}
+              transition={{ repeat: Infinity, duration: 1 }}
+            />
+          )}
+        </AnimatePresence>
+        <div className="text-center mt-4 font-semibold text-stone-700">
+          {userSpeaking ? "You are speaking…" : "Press mic to speak"}
+        </div>
       </div>
 
-
-      <Card className="w-full max-w-3xl p-6 bg-white/90 shadow-lg flex flex-col space-y-4">
-        <div className="flex-1 h-[60vh] overflow-y-auto">
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`mb-3 flex ${
-                msg.sender === "avatar" ? "justify-start" : "justify-end"
-              }`}
-            >
-              <div
-                className={`px-4 py-2 rounded-xl shadow text-base md:text-lg whitespace-pre-wrap ${
-                  msg.sender === "avatar"
-                    ? "bg-lime-100 text-stone-900"
-                    : "bg-white text-stone-800"
-                }`}
-              >
-                {msg.text}
-              </div>
-            </div>
-          ))}
-          {isThinking && (
-            <div className="text-lime-700 italic">the river contemplates…</div>
+      {/* Avatar response ripples */}
+      <div className="mb-8 relative">
+        <AnimatePresence>
+          {avatarPlaying && (
+            <motion.div
+              className="w-48 h-48 rounded-full bg-cyan-300 mx-auto"
+              initial={{ scale: 1 }}
+              animate={{ scale: [1, 1.5, 1] }}
+              exit={{ scale: 1 }}
+              transition={{ repeat: Infinity, duration: 1 }}
+            />
           )}
-        </div>
+        </AnimatePresence>
+        {avatarAudioUrl && (
+          <div className="flex justify-center mt-4">
+            <Button onClick={toggleAvatarPlayback}>
+              {avatarPlaying ? "⏸ Pause Avatar" : "▶ Resume Avatar"}
+            </Button>
+          </div>
+        )}
+      </div>
 
-        <div className="flex justify-center space-x-4">
-          {!isRecording ? (
-            <Button
-              onClick={startRecording}
-              className="bg-amber-600 text-white rounded-full px-6 py-2"
-            >
-              🎤 Start Speaking
-            </Button>
-          ) : (
-            <Button
-              onClick={stopRecording}
-              className="bg-red-600 text-white rounded-full px-6 py-2"
-            >
-              ⏹ Stop
-            </Button>
-          )}
-        </div>
-      </Card>
+      {/* Recording button */}
+      <div>
+        {!isRecording ? (
+          <Button
+            onClick={startRecording}
+            className="bg-amber-600 text-white rounded-full px-6 py-2"
+          >
+            🎤 Start Speaking
+          </Button>
+        ) : (
+          <Button
+            onClick={stopRecording}
+            className="bg-red-600 text-white rounded-full px-6 py-2"
+          >
+            ⏹ Stop
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

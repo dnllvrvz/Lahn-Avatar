@@ -261,7 +261,7 @@ class OpenAIRealtimeClient:
         print('Function called: _get_sensor_data(). Query: ', query)
         print('Calling Lahn Sensors Tool...')
 
-        analysis = LahnSensorsTool(query)
+        analysis = str(LahnSensorsTool(query))
         print('Analysis: ', analysis)
 
         return analysis
@@ -454,7 +454,7 @@ class OpenAIRealtimeClient:
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": f"The weather in {args.get('city')} is {result}."
+                            "instructions": "Function response: (Be sure to respond in the same language as the user)"+result
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")
@@ -624,7 +624,7 @@ class CartesiaOpenAIPipeline:
         print('Function called: _get_sensor_data(). Query: ', query)
         print('Calling Lahn Sensors Tool...')
 
-        analysis = LahnSensorsTool(query)
+        analysis = str(LahnSensorsTool(query))
         print('Analysis: ', analysis)
 
         return analysis

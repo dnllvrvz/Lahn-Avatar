@@ -29,12 +29,6 @@ llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, f
 debate_summary_llm, _= get_llm('gwdg', "mistral-large-instruct", system_prompt= '')
 print('LLM initialized.')
 
-# api_tool = QueryEngineTool.from_defaults(
-#         query_engine=LahnSensorsTool(sensor_query_llm),
-#         name=LahnSensorsTool.name,
-#         description=LahnSensorsTool.description,
-#     )
-
 sensor_query_tool = LahnSensorsTool(sensor_query_llm)
 
 

@@ -37,7 +37,7 @@ class OpenAIRealtimeClient:
         self.awaiting_function_response = False
         self.current_response_has_function_call = False
 
-        self.prompt = prompt
+        self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies.'
         
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""

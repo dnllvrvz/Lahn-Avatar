@@ -14,6 +14,8 @@ import websocket
 from .avatar import RAG, sensor_query_llm
 from .utils import LahnSensorsTool
 
+sensor_query_tool = LahnSensorsTool(sensor_query_llm)
+
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
@@ -261,7 +263,7 @@ class OpenAIRealtimeClient:
         print('Function called: _get_sensor_data(). Query: ', query)
         print('Calling Lahn Sensors Tool...')
 
-        analysis = str(LahnSensorsTool(query))
+        analysis = str(sensor_query_tool(query))
         print('Analysis: ', analysis)
 
         return analysis
@@ -624,7 +626,7 @@ class CartesiaOpenAIPipeline:
         print('Function called: _get_sensor_data(). Query: ', query)
         print('Calling Lahn Sensors Tool...')
 
-        analysis = str(LahnSensorsTool(query))
+        analysis = str(sensor_query_tool(query))
         print('Analysis: ', analysis)
 
         return analysis

@@ -68,8 +68,7 @@ class LahnSensorsTool:
                Choose the largest of [seconds, minutes, hours, days, weeks, months, years]
                smaller than the requested interval. Use resampling accordingly.
 
-            6. Output must always assign to `result`, returning only numeric or string answers.
-            7. If any error occurs, adapt your next code so that it handles the failure case robustly.
+            6. If any error occurs, adapt your next code so that it handles the failure case robustly.
             """
 
     def _fetch_lahn_sensors_df(self) -> pd.DataFrame:

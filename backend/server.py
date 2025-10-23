@@ -6,7 +6,7 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm #, build_index, build_or_load_index, search_text_index
+from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm #, build_index, build_or_load_index, search_text_index
 from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient, CartesiaOpenAIPipeline
 
@@ -21,7 +21,7 @@ UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # === Load LLM once at startup ===
-llm_choice = "hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
+# llm_choice = "gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
 llm_second_choice = "hrz-chat-small"
 
 llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, for consistency, since they're essentially the same thing. THis has llm.chat.completions.create around line 119. Doesnt work with gwdg format
@@ -62,7 +62,7 @@ topic_descriptions = {
 @app.route("/api/chat", methods=["POST"])
 def chat():
     global llm, llm_choice, system_prompt
-    print('Chat request received.')
+    print('\n\n------------------------\nChat request received.')
 
     data = request.get_json()
     prompt = data.get("prompt", "")
@@ -116,7 +116,7 @@ def chat():
         results = '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call.'
 
     # if len(results)>0:
-        print('Passing analysis results to LLM: ', chat_history+[{'role':'system', 'content':results}])
+        print('Passing analysis results to LLM..') #: ', chat_history+[{'role':'system', 'content':results}])
         chat_completion_2 = llm.chat.completions.create(
               messages=chat_history+[{'role':'system', 'content':results}],
               model= llm_choice,
@@ -248,6 +248,7 @@ CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 # Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
+    print('\n\n------------------------\nVoice Chat request received.')
     global system_prompt
 
     #Do away with function-related instructions, for now.

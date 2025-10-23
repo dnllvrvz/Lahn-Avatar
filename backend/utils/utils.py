@@ -1,7 +1,6 @@
 
 import numpy as np
 
-# import soundfile as sf
 import torch, torchaudio
 import subprocess, time
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
@@ -78,6 +77,68 @@ class LahnSensorsTool:
             self._last_fetch = now
         return self._cached_df
 
+    def _repair_and_retry(self, query: str, max_retries: int = 3) -> str:
+        """
+        Attempts to repair and re-run a failed PandasQueryEngine query.
+        The LLM is prompted with the previous error and asked to fix the code.
+        """
+        import traceback
+        from llama_index.experimental.exec_utils import safe_exec
+        import pandas as pd
+
+        df = self._get_df()
+        last_error = None
+        last_code = None
+
+        for attempt in range(max_retries):
+            try:
+                print(f"🧠 Repair attempt {attempt+1} for query: {query}")
+                # 1️⃣ Ask the LLM to generate or repair the code
+                if attempt == 0:
+                    prompt = (
+                        f"You are a Pandas data analysis assistant.\n"
+                        f"Write correct, runnable Python code (no markdown, no comments) "
+                        f"that uses the pandas DataFrame `df` to answer this question:\n\n{query}\n"
+                        "Store your final answer in a variable called `result`."
+                    )
+                else:
+                    prompt = (
+                        f"The previous code failed with this error:\n{last_error}\n\n"
+                        f"Previous code:\n{last_code}\n\n"
+                        "Fix it and produce new valid Python code (no markdown, no comments). "
+                        "Make sure to store the answer in a variable called `result`."
+                    )
+
+                response = self.llm.complete(prompt)
+                code = (
+                    response.strip()
+                    .replace("```python", "")
+                    .replace("```", "")
+                    .strip()
+                )
+                last_code = code
+
+                print(f"🧩 Generated code:\n{code}\n")
+
+                # 2️⃣ Attempt execution safely
+                local_vars = {"df": df, "pd": pd}
+                safe_exec(code, {}, local_vars)
+
+                if "result" in local_vars:
+                    print("✅ Code executed successfully after repair.")
+                    return str(local_vars["result"])
+                else:
+                    print("⚠️ Code ran but produced no explicit result variable.")
+                    return "✅ Code executed successfully (no explicit result)."
+
+            except Exception as e:
+                last_error = traceback.format_exc()
+                print(f"❌ Error during repair attempt {attempt+1}:\n{last_error}\n")
+
+        # 3️⃣ If all repair attempts failed
+        return f"❌ Unable to repair query after {max_retries} attempts.\nLast error:\n{last_error}"
+
+
     def __call__(self, query: str) -> str:
         print('Calling Lahn Sensors Tool...')
         df = self._get_df()
@@ -85,6 +146,19 @@ class LahnSensorsTool:
             self._engine = PandasQueryEngine(df=df, llm=self.llm, verbose=True, synthesize_response=False)
         else:
             self._engine.df = df
+
+        try:
+            return self._engine.query(query).response
+        except Exception as e:
+            print(f"⚠️ PandasQueryEngine error: {e}")
+            print("Retrying once...")
+            try:
+                return self._engine.query(query).response
+            except Exception as e2:
+                print(f"⚠️ Retry failed: {e2}")
+                print("Invoking intelligent repair-and-retry loop...")
+                return self._repair_and_retry(query)
+
 
 
         # # fetch fresh data
@@ -97,8 +171,8 @@ class LahnSensorsTool:
         #     synthesize_response=True, # narrative answer
         # )
         # # run the query & return the natural‐language result
-        result = self._engine.query(query)
-        return result.response
+        # result = self._engine.query(query)
+        # return result.response
 
     def query(self, query_str: str) -> str:
         """
@@ -108,57 +182,57 @@ class LahnSensorsTool:
         return self(query_str)
 
 
-class NoMemory(BaseMemory):
-    """
-    A no-op memory implementation for LlamaIndex v0.12.35.
-    All methods are implemented but do nothing or return empty.
-    """
+# class NoMemory(BaseMemory):
+#     """
+#     A no-op memory implementation for LlamaIndex v0.12.35.
+#     All methods are implemented but do nothing or return empty.
+#     """
 
-    @classmethod
-    def from_defaults(cls, **kwargs: Any) -> "NoMemory":
-        # Ignoring any kwargs; just return an instance
-        return cls()
+#     @classmethod
+#     def from_defaults(cls, **kwargs: Any) -> "NoMemory":
+#         # Ignoring any kwargs; just return an instance
+#         return cls()
 
-    def put(self, message: Any) -> None:
-        # Called when the agent tries to store a message. Do nothing.
-        return
+#     def put(self, message: Any) -> None:
+#         # Called when the agent tries to store a message. Do nothing.
+#         return
 
-    async def aput(self, message: Any) -> None:
-        # Async version of put. Do nothing.
-        return
+#     async def aput(self, message: Any) -> None:
+#         # Async version of put. Do nothing.
+#         return
 
-    def get(self, input=None) -> List[Any]:
-        # Called when the agent wants to retrieve “relevant” memory.
-        # Always return an empty list (no history).
-        return []
+#     def get(self, input=None) -> List[Any]:
+#         # Called when the agent wants to retrieve “relevant” memory.
+#         # Always return an empty list (no history).
+#         return []
 
-    async def aget(self) -> List[Any]:
-        # Async version of get. Always return empty.
-        return []
+#     async def aget(self) -> List[Any]:
+#         # Async version of get. Always return empty.
+#         return []
 
-    def get_all(self) -> List[Any]:
-        # Called when the agent wants all memory. Return empty.
-        return []
+#     def get_all(self) -> List[Any]:
+#         # Called when the agent wants all memory. Return empty.
+#         return []
 
-    async def aget_all(self) -> List[Any]:
-        # Async version. Return empty.
-        return []
+#     async def aget_all(self) -> List[Any]:
+#         # Async version. Return empty.
+#         return []
 
-    def set(self, messages: List[Any]) -> None:
-        # Replace entire memory store with new messages. We ignore.
-        return
+#     def set(self, messages: List[Any]) -> None:
+#         # Replace entire memory store with new messages. We ignore.
+#         return
 
-    async def aset(self, messages: List[Any]) -> None:
-        # Async version of set. Do nothing.
-        return
+#     async def aset(self, messages: List[Any]) -> None:
+#         # Async version of set. Do nothing.
+#         return
 
-    def reset(self) -> None:
-        # Clear all memory. We have none, so do nothing.
-        return
+#     def reset(self) -> None:
+#         # Clear all memory. We have none, so do nothing.
+#         return
 
-    async def areset(self) -> None:
-        # Async version of reset. Do nothing.
-        return
+#     async def areset(self) -> None:
+#         # Async version of reset. Do nothing.
+#         return
 
 def format_history_as_string(history):
     # print('To convert to string. Input: ', history)

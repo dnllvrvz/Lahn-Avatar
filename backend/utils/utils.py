@@ -31,29 +31,9 @@ print("✅ Whisper model loaded.")
 
 # 1) Fetch & normalize your ThingSpeak data
 THINGSPEAK_URL = (
-    "https://api.thingspeak.com/channels/2974588/feeds.json?results=100"
+    "https://api.thingspeak.com/channels/2974588/feeds.json?results=350"
 )
 
-def fetch_lahn_sensors_df() -> pd.DataFrame:
-    print('Fetching Lahn sensor data...')
-    resp = requests.get(THINGSPEAK_URL)
-    resp.raise_for_status()
-    data = resp.json()
-    # extract channel metadata → used for human‐friendly column names
-    channel_meta = data["channel"]
-    field_map = {
-        f"field{i}": channel_meta[f"field{i}"]
-        for i in range(1, 7)
-    }
-    # load feeds into DataFrame
-    df = pd.json_normalize(data["feeds"])
-    # rename columns to pH, DO (mg/L), etc.
-    df = df.rename(columns=field_map)
-    # parse timestamp & convert all sensor readings to numeric
-    df["created_at"] = pd.to_datetime(df["created_at"])
-    for col in field_map.values():
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
 
 # 2) Wrap it in a callable that runs PandasQueryEngine on demand
 class LahnSensorsTool:
@@ -69,32 +49,74 @@ class LahnSensorsTool:
         self._cached_df = None
         self._engine = None
 
+    def _fetch_lahn_sensors_df(self) -> pd.DataFrame:
+        print('Fetching Lahn sensor data...')
+        resp = requests.get(THINGSPEAK_URL)
+        resp.raise_for_status()
+        data = resp.json()
+        # extract channel metadata → used for human‐friendly column names
+        channel_meta = data["channel"]
+        field_map = {
+            f"field{i}": channel_meta[f"field{i}"]
+            for i in range(1, 7)
+        }
+        # load feeds into DataFrame
+        df = pd.json_normalize(data["feeds"])
+        # rename columns to pH, DO (mg/L), etc.
+        df = df.rename(columns=field_map)
+        # parse timestamp & convert all sensor readings to numeric
+        df["created_at"] = pd.to_datetime(df["created_at"])
+        for col in field_map.values():
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+
     def _get_df(self):
         now = time.time()
         if self._cached_df is None or (now - self._last_fetch) > self.cache_ttl:
             print("Fetching new sensor data...")
-            self._cached_df = fetch_lahn_sensors_df()
+            self._cached_df = self._fetch_lahn_sensors_df()
             self._last_fetch = now
         return self._cached_df
+
+    def _get_df_sample(self, n=10):
+        """Return a representative text sample of the dataframe for the LLM."""
+        import pandas as pd
+        df = self._get_df()
+        sample = df.head(n).to_string(index=False)
+        info = f"DataFrame columns: {', '.join(df.columns)}\nSample rows:\n{sample}"
+        return info
+
 
 
     def __call__(self, query: str) -> str:
         print('Calling Lahn Sensors Tool...')
         n_tries = 0
         df = self._get_df()
+        sample_info = self._get_df_sample()
+
         if self._engine is None:
             self._engine = PandasQueryEngine(df=df, llm=self.llm, verbose=True, synthesize_response=False)
         else:
             self._engine.df = df
 
-        # try:
+        query = (
+                f"{query}\n\n"
+                f"Context: here is a small sample of the dataframe you will analyze.\n"
+                f"Use this to infer datetime granularity, column names, and data structure.\n"
+                f"{sample_info}\n"
+                # "If you need to access a specific timestamp, use the nearest available one "
+                # "rather than assuming exact equality. "
+                "Sometimes values are null, so take that into account as well."
+            )
+
         result = self._engine.query(query).response
+
         # If the response contains an embedded Pandas failure message, trigger repair
         while (isinstance(result, str)) and ("Error message:" in result):
             if (n_tries<3):
                 n_tries += 1
                 print("⚠️ Detected embedded error message in response — retrying with augmented query...")
-                query = f"{query}\n\nNote: the previous code failed with this error: {result}. Please correct it."
+                query = f"{query}\n\nNote: the previous code failed with this error: {result}. Identify the reason for the error, and adapt your new approach to avoid that."
                 print('Augmented query: ', query)
                 result = self._engine.query(query).response
             else:

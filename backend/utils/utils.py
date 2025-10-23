@@ -110,6 +110,7 @@ class LahnSensorsTool:
                     )
 
                 response = self.llm.complete(prompt)
+                response = response.text if hasattr(response, "text") else str(response)
                 code = (
                     response.strip()
                     .replace("```python", "")
@@ -154,7 +155,7 @@ class LahnSensorsTool:
                 print("⚠️ Detected embedded error message in response — invoking repair loop...")
                 return self._repair_and_retry(query)
             return result
-            
+
         except Exception as e:
             print(f"⚠️ PandasQueryEngine error: {e}")
             print("Retrying once...")

@@ -48,6 +48,29 @@ class LahnSensorsTool:
         self.cache_ttl=1800
         self._cached_df = None
         self._engine = None
+        self.GENERAL_PANDAS_INSTRUCTIONS = """
+            General guidance for using the DataFrame `df`:
+            1. Always ensure consistent datetime handling:
+               df['created_at'] = pd.to_datetime(df['created_at'])
+               df['created_at'] = df['created_at'].dt.tz_localize(None)
+               df = df.set_index('created_at')
+
+            2. Never assume exact timestamp equality; use nearest lookup:
+               idx = df.index.get_indexer([target_time], method='nearest')[0]
+
+            3. Handle NaN or missing values gracefully:
+               Use df.fillna(method='ffill') or df.interpolate() as needed.
+
+            4. Guard against missing columns:
+               Always check `"Temp (°C)" in df.columns` before accessing.
+
+            5. For aggregation or change-over-time questions:
+               Choose the largest of [seconds, minutes, hours, days, weeks, months, years]
+               smaller than the requested interval. Use resampling accordingly.
+
+            6. Output must always assign to `result`, returning only numeric or string answers.
+            7. If any error occurs, adapt your next code so that it handles the failure case robustly.
+            """
 
     def _fetch_lahn_sensors_df(self) -> pd.DataFrame:
         print('Fetching Lahn sensor data...')
@@ -101,6 +124,7 @@ class LahnSensorsTool:
 
         query = (
                 f"{query}\n\n"
+                f"{self.GENERAL_PANDAS_INSTRUCTIONS}\n\n"
                 f"Context: here is a small sample of the dataframe you will analyze.\n"
                 f"Use this to infer datetime granularity, column names, and data structure.\n"
                 f"{sample_info}\n"

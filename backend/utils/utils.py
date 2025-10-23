@@ -95,6 +95,7 @@ class LahnSensorsTool:
                 n_tries += 1
                 print("⚠️ Detected embedded error message in response — retrying with augmented query...")
                 query = f"{query}\n\nNote: the previous code failed with this error: {result}. Please correct it."
+                print('Augmented query: ', query)
                 result = self._engine.query(query).response
             else:
                 print('Unable to analyze data after multiple tries.')

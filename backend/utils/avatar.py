@@ -561,7 +561,7 @@ def RAG(query, text_index_query=None):
 
     total_context = '\nContext from text-based retrieval: \n' +context_from_text_index + '\n------------\nContext from vector-based retrieval: \n' + context_from_vector_index
 
-    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info. Also make sure to reply in the same language the user messaged you in -not necessarily the language in which this context is expressed. If the user messaged you in English, reply in English as well, even if this context is in German. ' + total_context
+    total_context = 'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the most relevant information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info. Also make sure to reply in the same language the user messaged you in -not necessarily the language in which this context is expressed. If the user messaged you in English, reply in English as well, even if this context is in German. ' + total_context
 
     print('-----\n\nRAG result: ', total_context)
     return total_context

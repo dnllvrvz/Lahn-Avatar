@@ -148,7 +148,13 @@ class LahnSensorsTool:
             self._engine.df = df
 
         try:
-            return self._engine.query(query).response
+            result = self._engine.query(query).response
+            # If the response contains an embedded Pandas failure message, trigger repair
+            if isinstance(result, str) and "Error message:" in result:
+                print("⚠️ Detected embedded error message in response — invoking repair loop...")
+                return self._repair_and_retry(query)
+            return result
+            
         except Exception as e:
             print(f"⚠️ PandasQueryEngine error: {e}")
             print("Retrying once...")
@@ -158,21 +164,6 @@ class LahnSensorsTool:
                 print(f"⚠️ Retry failed: {e2}")
                 print("Invoking intelligent repair-and-retry loop...")
                 return self._repair_and_retry(query)
-
-
-
-        # # fetch fresh data
-        # # df = fetch_lahn_sensors_df()
-        # # spin up a Pandas‐powered engine on it
-        # engine = PandasQueryEngine(
-        #     df=df,
-        #     llm=self.llm,             # or your preferred LLM wrapper
-        #     verbose=True,             # shows generated pandas code
-        #     synthesize_response=True, # narrative answer
-        # )
-        # # run the query & return the natural‐language result
-        # result = self._engine.query(query)
-        # return result.response
 
     def query(self, query_str: str) -> str:
         """

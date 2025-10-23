@@ -87,19 +87,19 @@ class LahnSensorsTool:
         else:
             self._engine.df = df
 
-        try:
-            result = self._engine.query(query).response
-            # If the response contains an embedded Pandas failure message, trigger repair
-            while (isinstance(result, str)) and ("Error message:" in result):
-                if (n_tries<3):
-                    n_tries += 1
-                    print("⚠️ Detected embedded error message in response — retrying with augmented query...")
-                    query = f"{query}\n\nNote: the previous code failed with this error: {result}. Please correct it."
-                    result = self._engine.query(query).response
-                else:
-                    print('Unable to analyze data after multiple tries.')
-                    return 'Technical issue with sensor data analysis. Pls try again later.'
-            return result
+        # try:
+        result = self._engine.query(query).response
+        # If the response contains an embedded Pandas failure message, trigger repair
+        while (isinstance(result, str)) and ("Error message:" in result):
+            if (n_tries<3):
+                n_tries += 1
+                print("⚠️ Detected embedded error message in response — retrying with augmented query...")
+                query = f"{query}\n\nNote: the previous code failed with this error: {result}. Please correct it."
+                result = self._engine.query(query).response
+            else:
+                print('Unable to analyze data after multiple tries.')
+                return 'Technical issue with sensor data analysis. Pls try again later.'
+        return result
 
         # except Exception as e:
         #     print(f"⚠️ PandasQueryEngine error: {e}")

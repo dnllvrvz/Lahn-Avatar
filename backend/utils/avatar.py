@@ -496,7 +496,7 @@ def prepare_query_engines(refresh=False):
         vector_index, text_index, chunks = build_or_load_index()
 
     # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
-    vector_index_query_engine = vector_index.as_retriever(similarity_top_k=10, verbose=True)
+    vector_index_query_engine = vector_index.as_retriever(similarity_top_k=5, verbose=True)
     # vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
     text_index_query_engine = search_text_index
 

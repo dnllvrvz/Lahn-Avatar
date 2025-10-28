@@ -251,19 +251,19 @@ def search_text_index(bm25, chunks, en_keywords, de_keywords, k_each:int=5):
 
     # --- original language pass -----------------------------------
     q_tokens_o = tokenize(normalise(query), lang_orig)
-    print('Query recieved by Text Index searcher: ', ', '.join(en_keywords + de_keywords))
-    print('Keywords group 1: ', query)
-    print('Keywords group 2: ', trans_q)
+    # print('Query recieved by Text Index searcher: ', ', '.join(en_keywords + de_keywords))
+    # print('Keywords group 1: ', query)
+    # print('Keywords group 2: ', trans_q)
 
-    print('Group 1 tokens to search with BM25: ', q_tokens_o)
+    # print('Group 1 tokens to search with BM25: ', q_tokens_o)
     scores_o   = bm25.get_scores(q_tokens_o)
     top_o      = scores_o.argsort()[-k_each:][::-1]
 
     # --- translated pass ------------------------------------------
     # trans_q    = translate(query, lang_trans)
-    print('Translated query: ',trans_q)
+    # print('Translated query: ',trans_q)
     q_tokens_t = tokenize(normalise(trans_q), lang_trans)
-    print('Group 2 tokens to search with BM25: ', q_tokens_t)
+    # print('Group 2 tokens to search with BM25: ', q_tokens_t)
     scores_t   = bm25.get_scores(q_tokens_t)
     top_t      = scores_t.argsort()[-k_each:][::-1]
 

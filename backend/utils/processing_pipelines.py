@@ -283,7 +283,7 @@ class OpenAIRealtimeClient:
                 "type": "function",
                 "name": "get_info_about_lahn",
                 "description": (
-                    "Get relevant information about the Lahn."
+                    "CALL THIS FUNCTION ON EVERY USER MESSAGE (except simple messages like 'Hello' which do not require a factual response). THIS IS THE AUTHORITATIVE SOURCE OF DATA ON THE LAHN. ALWAYS DEFER TO IT."
                     "Use for general factual or historical questions about the Lahn River "
                     "that do NOT involve live measurements or sensor data."
                     ),

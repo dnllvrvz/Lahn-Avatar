@@ -313,7 +313,7 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
 
     if target_lang == 'de':
         prefix = 'Word: '
-    else target_lang == 'en':
+    elif target_lang == 'en':
         prefix = 'Wort: '
 
     translator = GoogleTranslator(source=source_lang, target=target_lang)

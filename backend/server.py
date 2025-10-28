@@ -62,7 +62,7 @@ topic_descriptions = {
 @app.route("/api/chat", methods=["POST"])
 def chat():
     global llm, llm_choice, system_prompt
-    print('\n\n------------------------\nChat request received.')
+    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received.')
 
     data = request.get_json()
     prompt = data.get("prompt", "")
@@ -248,7 +248,7 @@ CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 # Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
-    print('\n\n------------------------\nVoice Chat request received.')
+    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nVoice Chat request received.')
     global system_prompt
 
     #Do away with function-related instructions, for now.

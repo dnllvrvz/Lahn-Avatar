@@ -298,21 +298,22 @@ def search_text_index(bm25, chunks, en_keywords, de_keywords, k_each:int=5):
 
 
 
-from langdetect import detect
+# from langdetect import detect
 from deep_translator import GoogleTranslator
 import spacy
 
 # Load multilingual models (download with: python -m spacy download en_core_web_sm && python -m spacy download de_core_news_sm)
-nlp_en = spacy.load("en_core_web_sm")
-nlp_de = spacy.load("de_core_news_sm")
+# nlp_en = spacy.load("en_core_web_sm")
+# nlp_de = spacy.load("de_core_news_sm")
 
 
 
 
 def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
+
     if target_lang == 'de':
         prefix = 'Word: '
-    else:
+    else target_lang == 'en':
         prefix = 'Wort: '
 
     translator = GoogleTranslator(source=source_lang, target=target_lang)
@@ -324,16 +325,41 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
     return parts
 
 
+# def extract_keywords(text):
+#     # Detect language
+#     lang = detect(text) #Works poorly for sentences that mix both languages
+#     print('Detected language: ', lang, '. Input: ', text)
+#     if lang.startswith('de'):
+#         nlp = nlp_de
+#         target_lang = 'en' #Assumes the language is English if it's nt German
+#     else:
+#         nlp = nlp_en
+#         target_lang = 'de'
+
+import langid
+
+# Preload your NLP models
+nlp_en = spacy.load("en_core_web_sm")
+nlp_de = spacy.load("de_core_news_sm")
+# nlp_multi = spacy.load("xx_ent_wiki_sm")  # Multilingual fallback
+
 def extract_keywords(text):
-    # Detect language
-    lang = detect(text) #Works poorly for sentences that mix both languages
-    print('Detected language: ', lang, '. Input: ', text)
-    if lang.startswith('de'):
+    # Detect dominant language
+    lang, confidence = langid.classify(text)
+    print(f"Detected language: {lang} (confidence={confidence:.2f}). Input: {text}")
+
+    # Decide model and translation target
+    if lang.startswith("de"):
         nlp = nlp_de
-        target_lang = 'en' #Assumes the language is English if it's nt German
-    else:
+        target_lang = "en"
+    elif lang.startswith("en"):
         nlp = nlp_en
-        target_lang = 'de'
+        target_lang = "de"
+    else:
+        # Multilingual or low-confidence input
+        text = GoogleTranslator(source='auto', target='en').translate(text)
+        nlp = nlp_en
+        target_lang = "de"
 
     doc = nlp(text)
     print('extract_keyword doc: ', doc)
@@ -349,15 +375,11 @@ def extract_keywords(text):
     if target_lang == 'en':
         en_keywords = translated_keywords
         de_keywords = keywords
-        # all_keywords = translated_keywords + keywords
     else:
         en_keywords = keywords
         de_keywords = translated_keywords
-        # all_keywords = keywords + translated_keywords
 
-    # keyword_list = ', '.join(all_keywords)
-
-    return en_keywords, de_keywords #keyword_list
+    return en_keywords, de_keywords 
 
 
 
@@ -482,14 +504,14 @@ def build_or_load_index(refresh=False):
 
 
 llm_choice = "gemma-3-27b-it"
-vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
+# vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
 text_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Context is needed to address the most recent message in this conversation (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3, keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: ')
 #This should be a very technically capable model, to cut down the chances of buggy-code-related issues.
-sensor_query_llm, _ = get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
-
+sensor_query_llm, _ = get_llm('gwdg', 'qwen2.5-coder-32b-instruct', system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
+# mistral-large-instruct
 
 def prepare_query_engines(refresh=False):
-    global vector_query_llm
+    # global vector_query_llm
     if refresh==True:
         vector_index, text_index, chunks = build_index()
     else:
@@ -540,16 +562,16 @@ def fetch_vector_index_context(query):
 
 
 
-def RAG(query, text_index_query=None):
+def RAG(query): #, text_index_query=None):
     # keywords_for_text_based_retrieval 
-    if text_index_query==None:
-        en_keywords, de_keywords = extract_keywords(query)
-    else:
-        en_keywords, de_keywords = extract_keywords(text_index_query)
+    # if text_index_query==None:
+    en_keywords, de_keywords = extract_keywords(query)
+    # else:
+    #     en_keywords, de_keywords = extract_keywords(text_index_query)
     print('Keywords for text-based retrieval: ', en_keywords, de_keywords)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        thread_0 = executor.submit(fetch_vector_index_context, query)
+        thread_0 = executor.submit(fetch_vector_index_context, ', '.join(en_keywords+de_keywords))# query)
         thread_1 = executor.submit(text_index_query_engine, text_index, chunks, en_keywords, de_keywords)
 
         wait([thread_0,thread_1])

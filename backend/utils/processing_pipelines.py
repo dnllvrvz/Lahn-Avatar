@@ -40,7 +40,7 @@ class OpenAIRealtimeClient:
         self.awaiting_function_response = False
         self.current_response_has_function_call = False
 
-        self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies.'
+        self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
         
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""
@@ -176,6 +176,10 @@ class OpenAIRealtimeClient:
                 # Explicitly request a response
                 response_event = {
                     "type": "response.create"
+                    "response": {
+                            "modalities": ["audio", "text"],
+                            "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
+                            }
                 }
                 self.ws.send(json.dumps(response_event))
                 print("📤 Requested response generation")
@@ -456,7 +460,7 @@ class OpenAIRealtimeClient:
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: (What language did the user speak to you in? Respond in precisely the same language)"+result
+                            "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"+result
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")
@@ -503,351 +507,351 @@ class OpenAIRealtimeClient:
 
 
 
-class CartesiaOpenAIPipeline:
-    """Pipeline for Cartesia STT -> OpenAI GPT-4 -> Cartesia TTS."""
+# class CartesiaOpenAIPipeline:
+#     """Pipeline for Cartesia STT -> OpenAI GPT-4 -> Cartesia TTS."""
     
-    def __init__(self, cartesia_api_key: str, openai_api_key: str, prompt=''):
-        self.cartesia_api_key = cartesia_api_key
-        self.openai_api_key = openai_api_key
-        self.cartesia_base_url = "https://api.cartesia.ai"
-        self.last_stt_duration = 0  # For cost calculation
-        self.prompt = prompt
+#     def __init__(self, cartesia_api_key: str, openai_api_key: str, prompt=''):
+#         self.cartesia_api_key = cartesia_api_key
+#         self.openai_api_key = openai_api_key
+#         self.cartesia_base_url = "https://api.cartesia.ai"
+#         self.last_stt_duration = 0  # For cost calculation
+#         self.prompt = prompt
         
-    def process_audio(self, audio_input) -> Tuple[Optional[bytes], float, dict]:
-        """Process audio through the Cartesia-OpenAI pipeline."""
-        start_time = time.time()
-        cost_info = {
-            'stt_cost': 0,
-            'llm_cost': 0,
-            'tts_cost': 0,
-            'total_cost': 0,
-            'stt_time': 0,
-            'llm_time': 0,
-            'tts_time': 0,
-            'transcript': '',
-            'llm_response': '',
-            'error': None
-        }
+#     def process_audio(self, audio_input) -> Tuple[Optional[bytes], float, dict]:
+#         """Process audio through the Cartesia-OpenAI pipeline."""
+#         start_time = time.time()
+#         cost_info = {
+#             'stt_cost': 0,
+#             'llm_cost': 0,
+#             'tts_cost': 0,
+#             'total_cost': 0,
+#             'stt_time': 0,
+#             'llm_time': 0,
+#             'tts_time': 0,
+#             'transcript': '',
+#             'llm_response': '',
+#             'error': None
+#         }
         
-        try:
-            # Step 1: Speech-to-Text with Cartesia
-            stt_start = time.time()
-            transcript = self._speech_to_text(audio_input)
-            cost_info['stt_time'] = time.time() - stt_start
-            cost_info['transcript'] = transcript
+#         try:
+#             # Step 1: Speech-to-Text with Cartesia
+#             stt_start = time.time()
+#             transcript = self._speech_to_text(audio_input)
+#             cost_info['stt_time'] = time.time() - stt_start
+#             cost_info['transcript'] = transcript
             
-            if not transcript:
-                raise Exception("Failed to transcribe audio")
+#             if not transcript:
+#                 raise Exception("Failed to transcribe audio")
             
-            print(f"📝 Transcript: {transcript}")
+#             print(f"📝 Transcript: {transcript}")
             
-            # Step 2: Process with OpenAI GPT-4
-            llm_start = time.time()
-            llm_response, llm_tokens = self._process_with_gpt4(transcript)
+#             # Step 2: Process with OpenAI GPT-4
+#             llm_start = time.time()
+#             llm_response, llm_tokens = self._process_with_gpt4(transcript)
 
-            cost_info['llm_time'] = time.time() - llm_start
-            cost_info['llm_response'] = llm_response
+#             cost_info['llm_time'] = time.time() - llm_start
+#             cost_info['llm_response'] = llm_response
             
-            if not llm_response:
-                raise Exception("Failed to get GPT-4 response")
+#             if not llm_response:
+#                 raise Exception("Failed to get GPT-4 response")
             
-            print(f"🤖 GPT-4o response: {llm_response}")
+#             print(f"🤖 GPT-4o response: {llm_response}")
             
-            # Calculate LLM cost (GPT-4o pricing)
-            cost_info['llm_input_tokens'] = llm_tokens['input']
-            cost_info['llm_output_tokens'] = llm_tokens['output']
-            cost_info['llm_cost'] = (
-                (llm_tokens['input'] / 1_000_000) * 2.50 +  # $2.50 per 1M input tokens
-                (llm_tokens['output'] / 1_000_000) * 10.00  # $10.00 per 1M output tokens
-            )
+#             # Calculate LLM cost (GPT-4o pricing)
+#             cost_info['llm_input_tokens'] = llm_tokens['input']
+#             cost_info['llm_output_tokens'] = llm_tokens['output']
+#             cost_info['llm_cost'] = (
+#                 (llm_tokens['input'] / 1_000_000) * 2.50 +  # $2.50 per 1M input tokens
+#                 (llm_tokens['output'] / 1_000_000) * 10.00  # $10.00 per 1M output tokens
+#             )
             
-            # Step 3: Text-to-Speech with Cartesia
-            tts_start = time.time()
-            audio_response = self._text_to_speech(llm_response)
-            cost_info['tts_time'] = time.time() - tts_start
+#             # Step 3: Text-to-Speech with Cartesia
+#             tts_start = time.time()
+#             audio_response = self._text_to_speech(llm_response)
+#             cost_info['tts_time'] = time.time() - tts_start
             
-            if not audio_response:
-                raise Exception("Failed to synthesize speech")
+#             if not audio_response:
+#                 raise Exception("Failed to synthesize speech")
             
-            # Calculate Cartesia costs
-            # WARNING: These are estimates based on available pricing info
-            # STT (Ink-Whisper): 1 credit per second of audio
-            # Using Pro tier pricing: $5 for 100K credits = $0.00005 per credit
-            if hasattr(self, 'last_stt_duration'):
-                stt_credits = self.last_stt_duration  # 1 credit per second
-                cost_info['stt_cost'] = stt_credits * 0.00005  # Pro tier pricing
-            else:
-                # Fallback: estimate 150 words per minute speech rate
-                estimated_seconds = (len(transcript.split()) / 150) * 60
-                cost_info['stt_cost'] = estimated_seconds * 0.00005
+#             # Calculate Cartesia costs
+#             # WARNING: These are estimates based on available pricing info
+#             # STT (Ink-Whisper): 1 credit per second of audio
+#             # Using Pro tier pricing: $5 for 100K credits = $0.00005 per credit
+#             if hasattr(self, 'last_stt_duration'):
+#                 stt_credits = self.last_stt_duration  # 1 credit per second
+#                 cost_info['stt_cost'] = stt_credits * 0.00005  # Pro tier pricing
+#             else:
+#                 # Fallback: estimate 150 words per minute speech rate
+#                 estimated_seconds = (len(transcript.split()) / 150) * 60
+#                 cost_info['stt_cost'] = estimated_seconds * 0.00005
             
-            # TTS (Sonic): 1 credit per character of INPUT text
-            # Note: It takes 750-800 credits to generate 1 minute of audio
-            tts_credits = len(llm_response)  # 1 credit per character
-            cost_info['tts_cost'] = tts_credits * 0.00005  # Pro tier pricing
+#             # TTS (Sonic): 1 credit per character of INPUT text
+#             # Note: It takes 750-800 credits to generate 1 minute of audio
+#             tts_credits = len(llm_response)  # 1 credit per character
+#             cost_info['tts_cost'] = tts_credits * 0.00005  # Pro tier pricing
             
-            # For reference: audio generation rate
-            # ~150 words/minute speaking rate, ~5 chars/word = ~750 chars/minute
-            # This aligns with Cartesia's 750-800 credits per minute of audio
+#             # For reference: audio generation rate
+#             # ~150 words/minute speaking rate, ~5 chars/word = ~750 chars/minute
+#             # This aligns with Cartesia's 750-800 credits per minute of audio
             
-            # Calculate total cost
-            cost_info['total_cost'] = (
-                cost_info['stt_cost'] + 
-                cost_info['llm_cost'] + 
-                cost_info['tts_cost']
-            )
+#             # Calculate total cost
+#             cost_info['total_cost'] = (
+#                 cost_info['stt_cost'] + 
+#                 cost_info['llm_cost'] + 
+#                 cost_info['tts_cost']
+#             )
             
-            # Add transcripts
-            cost_info['input_transcript'] = transcript
-            cost_info['output_transcript'] = llm_response
+#             # Add transcripts
+#             cost_info['input_transcript'] = transcript
+#             cost_info['output_transcript'] = llm_response
             
-            # Stop timer here - before any playback
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(f"⏱️  Total pipeline time: {elapsed_time:.2f}s (playback not included)")
+#             # Stop timer here - before any playback
+#             end_time = time.time()
+#             elapsed_time = end_time - start_time
+#             print(f"⏱️  Total pipeline time: {elapsed_time:.2f}s (playback not included)")
             
-            return audio_response, elapsed_time, cost_info
+#             return audio_response, elapsed_time, cost_info
             
-        except Exception as e:
-            cost_info['error'] = str(e)
-            print(f"❌ Pipeline error: {e}")
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            return None, elapsed_time, cost_info
+#         except Exception as e:
+#             cost_info['error'] = str(e)
+#             print(f"❌ Pipeline error: {e}")
+#             end_time = time.time()
+#             elapsed_time = end_time - start_time
+#             return None, elapsed_time, cost_info
 
-    def _get_info_about_lahn(self, query: str):
-        print('Function called: _get_info_about_lahn(). Query: ', query)
-        print('Activating RAG...')
-        context = RAG(query)
+#     def _get_info_about_lahn(self, query: str):
+#         print('Function called: _get_info_about_lahn(). Query: ', query)
+#         print('Activating RAG...')
+#         context = RAG(query)
 
-        return context
+#         return context
 
-    def _get_sensor_data(self, query:str):
-        print('Function called: _get_sensor_data(). Query: ', query)
-        print('Calling Lahn Sensors Tool...')
+#     def _get_sensor_data(self, query:str):
+#         print('Function called: _get_sensor_data(). Query: ', query)
+#         print('Calling Lahn Sensors Tool...')
 
-        analysis = str(sensor_query_tool(query))
-        print('Analysis: ', analysis)
+#         analysis = str(sensor_query_tool(query))
+#         print('Analysis: ', analysis)
 
-        return analysis
+#         return analysis
     
-    def _speech_to_text(self, audio_input) -> Optional[str]:
-        """Convert speech to text using Cartesia."""
-        try:
-            headers = {
-                "Cartesia-Version": "2024-06-10",
-                "X-API-Key": self.cartesia_api_key
-            }
+#     def _speech_to_text(self, audio_input) -> Optional[str]:
+#         """Convert speech to text using Cartesia."""
+#         try:
+#             headers = {
+#                 "Cartesia-Version": "2024-06-10",
+#                 "X-API-Key": self.cartesia_api_key
+#             }
             
-            # with open(audio_file, 'rb') as f:
-            #     files = {'file': ('audio.wav', f, 'audio/wav')}
+#             # with open(audio_file, 'rb') as f:
+#             #     files = {'file': ('audio.wav', f, 'audio/wav')}
 
-            if isinstance(audio_input, (bytes, bytearray)):
-                file_tuple = ('audio.wav', io.BytesIO(audio_input), 'audio/wav')
-            elif hasattr(audio_input, "read"):  # already file-like
-                file_tuple = ('audio.wav', audio_input, 'audio/wav')
-            else:  # assume path
-                file_tuple = ('audio.wav', open(audio_input, 'rb'), 'audio/wav')
+#             if isinstance(audio_input, (bytes, bytearray)):
+#                 file_tuple = ('audio.wav', io.BytesIO(audio_input), 'audio/wav')
+#             elif hasattr(audio_input, "read"):  # already file-like
+#                 file_tuple = ('audio.wav', audio_input, 'audio/wav')
+#             else:  # assume path
+#                 file_tuple = ('audio.wav', open(audio_input, 'rb'), 'audio/wav')
 
-            files = {'file': file_tuple}
+#             files = {'file': file_tuple}
 
-            data = {
-                'model': 'ink-whisper',
-                'language': 'en',
-                'timestamp_granularities[]': 'word'  # Optional, for word timestamps
-            }
+#             data = {
+#                 'model': 'ink-whisper',
+#                 'language': 'en',
+#                 'timestamp_granularities[]': 'word'  # Optional, for word timestamps
+#             }
             
-            # Using the official Cartesia STT endpoint from docs
-            response = requests.post(
-                f"{self.cartesia_base_url}/stt",
-                headers=headers,
-                files=files,
-                data=data
-            )
+#             # Using the official Cartesia STT endpoint from docs
+#             response = requests.post(
+#                 f"{self.cartesia_base_url}/stt",
+#                 headers=headers,
+#                 files=files,
+#                 data=data
+#             )
             
-            if response.status_code == 200:
-                result = response.json()
-                # Store duration for cost calculation
-                if hasattr(self, 'last_stt_duration'):
-                    self.last_stt_duration = result.get('duration', 0)
-                return result.get('text', '')  # Note: API returns 'text' not 'transcript'
-            else:
-                print(f"❌ Cartesia STT error: {response.status_code} - {response.text}")
-                return None
+#             if response.status_code == 200:
+#                 result = response.json()
+#                 # Store duration for cost calculation
+#                 if hasattr(self, 'last_stt_duration'):
+#                     self.last_stt_duration = result.get('duration', 0)
+#                 return result.get('text', '')  # Note: API returns 'text' not 'transcript'
+#             else:
+#                 print(f"❌ Cartesia STT error: {response.status_code} - {response.text}")
+#                 return None
                 
-        except Exception as e:
-            print(f"❌ STT error: {e}")
-            return None
+#         except Exception as e:
+#             print(f"❌ STT error: {e}")
+#             return None
     
-    def _process_with_gpt4(self, text: str) -> Tuple[Optional[str], dict]:
-        """Process text with OpenAI GPT-4o."""
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.openai_api_key}",
-                "Content-Type": "application/json"
-            }
+#     def _process_with_gpt4(self, text: str) -> Tuple[Optional[str], dict]:
+#         """Process text with OpenAI GPT-4o."""
+#         try:
+#             headers = {
+#                 "Authorization": f"Bearer {self.openai_api_key}",
+#                 "Content-Type": "application/json"
+#             }
             
-            data = {
-                "model": "gpt-4o",
-                "messages": [
-                    {"role": "system", "content": self.prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
-                    {"role": "user", "content": text}
-                ],
-                "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_info_about_lahn",
-                        "description": (
-                            "Get relevant information about the Lahn"
-                            "Use for general factual or historical questions about the Lahn River "
-                            "that do NOT involve live measurements or sensor data."
-                            ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Info required."
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "name": "get_sensor_data",
-                    "description": (
-                        "Use ONLY for questions involving Lahn Atlas live data readings. Fetch and analyze live sensor data from the Lahn Atlas. "
-                        "Use this for questions involving temperature, pH, dissolved oxygen, "
-                        "electrical conductivity (water), or humidity and CO₂ (air). "
-                        "The function can perform computations like averages, minimums, maximums, or trends over time."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": (
-                                    "Natural-language question about Lahn Atlas sensor readings, e.g. "
-                                    "'What was the lowest temperature last week?' or 'Show the trend in pH over the past day.'"
-                                )
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            ],
-                "temperature": 0.7
-            }
+#             data = {
+#                 "model": "gpt-4o",
+#                 "messages": [
+#                     {"role": "system", "content": self.prompt}, #"You are a helpful AI assistant. Give very short, direct answers."},
+#                     {"role": "user", "content": text}
+#                 ],
+#                 "tools": [
+#                 {
+#                     "type": "function",
+#                     "function": {
+#                         "name": "get_info_about_lahn",
+#                         "description": (
+#                             "Get relevant information about the Lahn"
+#                             "Use for general factual or historical questions about the Lahn River "
+#                             "that do NOT involve live measurements or sensor data."
+#                             ),
+#                         "parameters": {
+#                             "type": "object",
+#                             "properties": {
+#                                 "query": {
+#                                     "type": "string",
+#                                     "description": "Info required."
+#                                 }
+#                             },
+#                             "required": ["query"]
+#                         }
+#                     }
+#                 },
+#                 {
+#                     "type": "function",
+#                     "name": "get_sensor_data",
+#                     "description": (
+#                         "Use ONLY for questions involving Lahn Atlas live data readings. Fetch and analyze live sensor data from the Lahn Atlas. "
+#                         "Use this for questions involving temperature, pH, dissolved oxygen, "
+#                         "electrical conductivity (water), or humidity and CO₂ (air). "
+#                         "The function can perform computations like averages, minimums, maximums, or trends over time."
+#                     ),
+#                     "parameters": {
+#                         "type": "object",
+#                         "properties": {
+#                             "query": {
+#                                 "type": "string",
+#                                 "description": (
+#                                     "Natural-language question about Lahn Atlas sensor readings, e.g. "
+#                                     "'What was the lowest temperature last week?' or 'Show the trend in pH over the past day.'"
+#                                 )
+#                             }
+#                         },
+#                         "required": ["query"]
+#                     }
+#                 }
+#             ],
+#                 "temperature": 0.7
+#             }
             
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=data
-            )
+#             response = requests.post(
+#                 "https://api.openai.com/v1/chat/completions",
+#                 headers=headers,
+#                 json=data
+#             )
             
-            if response.status_code == 200:
-                msg = response.json()["choices"][0]["message"]
+#             if response.status_code == 200:
+#                 msg = response.json()["choices"][0]["message"]
 
-                if "tool_calls" in msg:
-                    print('Function call detected. Calling...')
-                    for tool_call in msg["tool_calls"]:
-                        fn_name = tool_call["function"]["name"]
-                        args = json.loads(tool_call["function"]["arguments"])
+#                 if "tool_calls" in msg:
+#                     print('Function call detected. Calling...')
+#                     for tool_call in msg["tool_calls"]:
+#                         fn_name = tool_call["function"]["name"]
+#                         args = json.loads(tool_call["function"]["arguments"])
                         
-                        if fn_name == "get_info_about_lahn":
-                            result = self._get_info_about_lahn(**args)
-                        elif fn_name == "get_sensor_data":
-                            result = self._get_sensor_data(**args)
+#                         if fn_name == "get_info_about_lahn":
+#                             result = self._get_info_about_lahn(**args)
+#                         elif fn_name == "get_sensor_data":
+#                             result = self._get_sensor_data(**args)
                             
-                            # Send the result back to the model
-                            followup = {
-                                "model": "gpt-4o",
-                                "messages": [
-                                    *data["messages"],  # include conversation so far
-                                    msg,
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call["id"],
-                                        "content": json.dumps({"result": result})
-                                    }
-                                ]
-                            }
-                            followup_response = requests.post(
-                                "https://api.openai.com/v1/chat/completions",
-                                headers=headers,
-                                json=followup
-                            )
-                            print('Follow up response from tool call: ', followup_response.json())
+#                             # Send the result back to the model
+#                             followup = {
+#                                 "model": "gpt-4o",
+#                                 "messages": [
+#                                     *data["messages"],  # include conversation so far
+#                                     msg,
+#                                     {
+#                                         "role": "tool",
+#                                         "tool_call_id": tool_call["id"],
+#                                         "content": json.dumps({"result": result})
+#                                     }
+#                                 ]
+#                             }
+#                             followup_response = requests.post(
+#                                 "https://api.openai.com/v1/chat/completions",
+#                                 headers=headers,
+#                                 json=followup
+#                             )
+#                             print('Follow up response from tool call: ', followup_response.json())
 
-                            response = followup_response
+#                             response = followup_response
 
-                result = response.json()
-                message = result['choices'][0]['message']['content']
-                print('Message: ', message)
+#                 result = response.json()
+#                 message = result['choices'][0]['message']['content']
+#                 print('Message: ', message)
                 
-                # For fair comparison, only count user message tokens (exclude system prompt)
-                # The system prompt is: "You are a helpful AI assistant. Give very short, direct answers."
-                # Estimate user tokens: ~4 characters per token
-                user_tokens = max(1, len(text) // 4)
+#                 # For fair comparison, only count user message tokens (exclude system prompt)
+#                 # The system prompt is: "You are a helpful AI assistant. Give very short, direct answers."
+#                 # Estimate user tokens: ~4 characters per token
+#                 user_tokens = max(1, len(text) // 4)
                 
-                tokens = {
-                    'input': user_tokens,  # Only user message tokens for fair comparison
-                    'output': result['usage']['completion_tokens']
-                }
-                return message, tokens
-            else:
-                print(f"❌ GPT-4o error: {response.status_code} - {response.text}")
-                return None, {'input': 0, 'output': 0}
+#                 tokens = {
+#                     'input': user_tokens,  # Only user message tokens for fair comparison
+#                     'output': result['usage']['completion_tokens']
+#                 }
+#                 return message, tokens
+#             else:
+#                 print(f"❌ GPT-4o error: {response.status_code} - {response.text}")
+#                 return None, {'input': 0, 'output': 0}
                 
-        except Exception as e:
-            print(f"❌ GPT-4o error: {e}")
-            return None, {'input': 0, 'output': 0}
+#         except Exception as e:
+#             print(f"❌ GPT-4o error: {e}")
+#             return None, {'input': 0, 'output': 0}
     
-    def _text_to_speech(self, text: str) -> Optional[bytes]:
-        """Convert text to speech using Cartesia."""
-        try:
-            print("🔧 Using Cartesia direct API for TTS...")
+#     def _text_to_speech(self, text: str) -> Optional[bytes]:
+#         """Convert text to speech using Cartesia."""
+#         try:
+#             print("🔧 Using Cartesia direct API for TTS...")
             
-            headers = {
-                "Cartesia-Version": "2024-06-10",
-                "X-API-Key": self.cartesia_api_key,
-                "Content-Type": "application/json"
-            }
+#             headers = {
+#                 "Cartesia-Version": "2024-06-10",
+#                 "X-API-Key": self.cartesia_api_key,
+#                 "Content-Type": "application/json"
+#             }
             
-            data = {    
-                "model_id": "sonic-2",
-                "transcript": text,
-                "voice": {
-                    "mode": "id",
-                    "id": "694f9389-aac1-45b6-b726-9d9369183238"
-                },
-                "output_format": {
-                    "container": "raw",
-                    "encoding": "pcm_s16le",
-                    "sample_rate": 24000
-                },
-                "language": "en"
-            }
+#             data = {    
+#                 "model_id": "sonic-2",
+#                 "transcript": text,
+#                 "voice": {
+#                     "mode": "id",
+#                     "id": "694f9389-aac1-45b6-b726-9d9369183238"
+#                 },
+#                 "output_format": {
+#                     "container": "raw",
+#                     "encoding": "pcm_s16le",
+#                     "sample_rate": 24000
+#                 },
+#                 "language": "en"
+#             }
             
-            response = requests.post(
-                f"{self.cartesia_base_url}/tts/bytes",
-                headers=headers,
-                json=data
-            )
+#             response = requests.post(
+#                 f"{self.cartesia_base_url}/tts/bytes",
+#                 headers=headers,
+#                 json=data
+#             )
             
-            if response.status_code == 200:
-                audio_data = response.content
-                print(f"📊 Cartesia TTS response: {len(audio_data)} bytes")
-                expected_duration = len(audio_data) / (24000 * 2)
-                print(f"   Expected duration: {expected_duration:.2f} seconds")
-                return audio_data
-            else:
-                print(f"❌ Cartesia TTS error: {response.status_code} - {response.text}")
-                return None
+#             if response.status_code == 200:
+#                 audio_data = response.content
+#                 print(f"📊 Cartesia TTS response: {len(audio_data)} bytes")
+#                 expected_duration = len(audio_data) / (24000 * 2)
+#                 print(f"   Expected duration: {expected_duration:.2f} seconds")
+#                 return audio_data
+#             else:
+#                 print(f"❌ Cartesia TTS error: {response.status_code} - {response.text}")
+#                 return None
                     
-        except Exception as e:
-            print(f"❌ TTS error: {e}")
-            return None
+#         except Exception as e:
+#             print(f"❌ TTS error: {e}")
+#             return None

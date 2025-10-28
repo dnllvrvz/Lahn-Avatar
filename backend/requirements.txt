@@ -21,7 +21,7 @@ llama-index-experimental
 langdetect
 deep-translator
 rank-bm25
-
+langid
 spacy
 
 

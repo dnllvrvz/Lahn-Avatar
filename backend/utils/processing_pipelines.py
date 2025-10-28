@@ -175,7 +175,7 @@ class OpenAIRealtimeClient:
                 
                 # Explicitly request a response
                 response_event = {
-                    "type": "response.create"
+                    "type": "response.create",
                     "response": {
                             "modalities": ["audio", "text"],
                             "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"

@@ -90,7 +90,7 @@ def chat():
 
     # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
     text_index_query = fetch_text_index_query(conversation)
-    context = RAG(text_index_query) #query, text_index_query = text_index_query)
+    context = RAG(text_index_query, translated=True) #query, text_index_query = text_index_query)
 
     total_context = context 
     chat_completion = llm.chat.completions.create(

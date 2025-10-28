@@ -8,7 +8,7 @@ from llama_index.core.tools.query_engine import QueryEngineTool
 
 from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm #, build_index, build_or_load_index, search_text_index
 from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
-from utils.processing_pipelines import OpenAIRealtimeClient, CartesiaOpenAIPipeline
+from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
 
 import os,threading
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -294,9 +294,9 @@ def voice_chat():
         elif pipeline == "OpenAI gpt4o":
             client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt_)
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
-        elif pipeline == "Cartesia":
-            client = CartesiaOpenAIPipeline(CARTESIA_API_KEY, OPENAI_API_KEY, prompt = system_prompt_)
-            response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
+        # elif pipeline == "Cartesia":
+        #     client = CartesiaOpenAIPipeline(CARTESIA_API_KEY, OPENAI_API_KEY, prompt = system_prompt_)
+        #     response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         else:
             return jsonify({"error": f"Unknown pipeline '{pipeline}'"}), 400
 

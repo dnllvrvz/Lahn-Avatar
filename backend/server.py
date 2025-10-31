@@ -339,7 +339,6 @@ def stream(ws):
 
         if msg == "END":
             client.commit_audio_buffer()
-            client.request_response()
         else:
             client.append_audio(msg)   # raw base64 chunks
 

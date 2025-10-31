@@ -28,11 +28,21 @@ export default function VoiceChatStream() {
   // START STREAMING RECORDING
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
-    // Open websocket if needed
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
-      wsRef.current.onmessage = handleWsMessage;
-    }
+    // Create websocket
+    wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
+    wsRef.current.onmessage = handleWsMessage;
+
+    // Wait until connected before starting to record
+    await new Promise((resolve, reject) => {
+      wsRef.current.onopen = () => {
+        console.log("✅ WS connected");
+        resolve();
+      };
+      wsRef.current.onerror = (e) => {
+        console.error("❌ WebSocket error:", e);
+        reject(e);
+      };
+    });
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     userStreamRef.current = stream;
@@ -67,7 +77,15 @@ export default function VoiceChatStream() {
     mediaRecorderRef.current.ondataavailable = (e) => {
       if (e.data.size > 0) {
         // Stream raw chunks to backend
-        wsRef.current.send(e.data);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result.split(',')[1]; // strip "data:audio/webm;base64,"
+          if (wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(base64data);
+          }
+        };
+        reader.readAsDataURL(e.data);
+
       }
     };
 

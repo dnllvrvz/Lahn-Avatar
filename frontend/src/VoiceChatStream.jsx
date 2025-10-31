@@ -29,38 +29,48 @@ export default function VoiceChatStream() {
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
     wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
-    await new Promise((resolve) => (wsRef.current.onopen = resolve));
     wsRef.current.onmessage = handleWsMessage;
+    await new Promise((resolve) => (wsRef.current.onopen = resolve));
+    console.log("✅ WS connected");
 
     const audioCtx = new AudioContext({ sampleRate: 48000 });
+    await audioCtx.audioWorklet.addModule("/pcm-processor.js");
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioCtx.createMediaStreamSource(stream);
+    const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
 
-    const processor = audioCtx.createScriptProcessor(2048, 1, 1);
     const downsampleTarget = 24000;
     const ratio = audioCtx.sampleRate / downsampleTarget;
 
-    processor.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0);
-      // downsample
-      const downsampled = new Float32Array(Math.floor(input.length / ratio));
-      for (let i = 0, j = 0; i < input.length; i += ratio, j++)
-        downsampled[j] = input[Math.floor(i)];
+    worklet.port.onmessage = (event) => {
+      const floatChunk = event.data;
 
-      // float → int16
+      // Downsample from 48 kHz → 24 kHz
+      const downsampled = new Float32Array(Math.floor(floatChunk.length / ratio));
+      for (let i = 0, j = 0; i < floatChunk.length; i += ratio, j++) {
+        downsampled[j] = floatChunk[Math.floor(i)];
+      }
+
+      // Convert Float32 → Int16 PCM
       const pcm16 = new Int16Array(downsampled.length);
       for (let i = 0; i < downsampled.length; i++) {
-        let s = Math.max(-1, Math.min(1, downsampled[i]));
+        const s = Math.max(-1, Math.min(1, downsampled[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
 
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64);
+      // Base64 encode and send to backend
+      const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
     };
 
-    source.connect(processor);
-    processor.connect(audioCtx.destination);
+    source.connect(worklet);
+    worklet.connect(audioCtx.destination);
+
+    setIsRecording(true);
+    userStreamRef.current = stream;
   };
+
 
 
   // ─────────────────────────────────────────────────────────────

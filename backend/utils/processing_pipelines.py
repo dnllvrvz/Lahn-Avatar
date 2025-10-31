@@ -78,11 +78,28 @@ class OpenAIRealtimeClient:
         try:
             if not self.ws or not (getattr(self.ws, "sock", None) and self.ws.sock.connected):
                 print("⚠️ No active OpenAI websocket; processing buffered audio instead.")
+                import io, subprocess, tempfile, os
+
+                # 1️⃣  Write the buffered WebM bytes to a temporary file
+                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f_in:
+                    f_in.write(self.audio_buffer)
+                    f_in.flush()
+                    tmp_in = f_in.name
+
+                # 2️⃣  Convert WebM/Opus → raw PCM16 (24 kHz mono) using ffmpeg
+                pcm_data = subprocess.check_output([
+                    "ffmpeg", "-i", tmp_in, "-ar", "24000", "-ac", "1",
+                    "-f", "s16le", "pipe:1", "-loglevel", "error"
+                ])
+
+                os.remove(tmp_in)  # clean up temp file
+
+                # 3️⃣  Wrap PCM bytes in BytesIO and send to process_audio()
                 import io
-                self.process_audio(io.BytesIO(self.audio_buffer))
+                self.process_audio(io.BytesIO(pcm_data))
                 return
-            
-            # Send commit + request if already connected
+
+            # 4️⃣  (Optional) If already connected to OpenAI realtime socket
             self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
             self.ws.send(json.dumps({
                 "type": "response.create",
@@ -91,6 +108,9 @@ class OpenAIRealtimeClient:
                     "instructions": self.prompt
                 }
             }))
+
+        except subprocess.CalledProcessError as e:
+            print(f"[FFmpeg error] {e.output.decode('utf-8', 'ignore')}")
         except Exception as e:
             print(f"[WARN] commit_audio_buffer failed: {e}")
 

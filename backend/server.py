@@ -345,5 +345,15 @@ def stream(ws):
 
 
 
+@sock.route('/api/test')
+def test_stream(ws):
+    print("✅ WebSocket connected")
+    while True:
+        data = ws.receive()
+        if data is None:
+            break
+        print("Got:", data)
+        ws.send(f"Echo: {data}")
+
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False, port=5001)

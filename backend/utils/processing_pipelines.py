@@ -46,71 +46,44 @@ class OpenAIRealtimeClient:
 
 
     def append_audio(self, base64_chunk):
-        """Handle incoming base64 audio chunks from the browser.
-
-        If OpenAI realtime connection is active, stream them directly.
-        Otherwise, buffer them locally until commit_audio_buffer() is called.
-        """
+        """Forward each base64 audio chunk to OpenAI if connected, else buffer."""
         try:
-            # If we already have a live OpenAI websocket connection
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                # 🔹 Send chunk directly to OpenAI realtime API
                 self.ws.send(json.dumps({
                     "type": "input_audio_buffer.append",
                     "audio": base64_chunk
                 }))
             else:
-                # Buffer the chunks for later processing
+                # 🔹 No active OpenAI socket yet → buffer locally
                 import base64
                 decoded = base64.b64decode(base64_chunk)
                 self.audio_buffer.extend(decoded)
-            
-            # (Optional) Notify the browser that the chunk was received
+
+            # Optional: let browser know chunk was received
             if self.ws_client:
-                self.ws_client.send(json.dumps({
-                    "status": "audio_chunk_received"
-                }))
+                self.ws_client.send(json.dumps({"status": "audio_chunk_received"}))
         except Exception as e:
             print(f"[WARN] append_audio failed: {e}")
             
 
     def commit_audio_buffer(self):
-        """Commit buffered audio and request a response from OpenAI."""
+        """Tell OpenAI that user input is finished and request a response."""
         try:
-            if not self.ws or not (getattr(self.ws, "sock", None) and self.ws.sock.connected):
-                print("⚠️ No active OpenAI websocket; processing buffered audio instead.")
-                import io, subprocess, tempfile, os
+            if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                # 🔹 Finalize the current audio input buffer
+                self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
-                # 1️⃣  Write the buffered WebM bytes to a temporary file
-                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f_in:
-                    f_in.write(self.audio_buffer)
-                    f_in.flush()
-                    tmp_in = f_in.name
-
-                # 2️⃣  Convert WebM/Opus → raw PCM16 (24 kHz mono) using ffmpeg
-                pcm_data = subprocess.check_output([
-                    "ffmpeg", "-i", tmp_in, "-ar", "24000", "-ac", "1",
-                    "-f", "s16le", "pipe:1", "-loglevel", "error"
-                ])
-
-                os.remove(tmp_in)  # clean up temp file
-
-                # 3️⃣  Wrap PCM bytes in BytesIO and send to process_audio()
-                import io
-                self.process_audio(io.BytesIO(pcm_data))
-                return
-
-            # 4️⃣  (Optional) If already connected to OpenAI realtime socket
-            self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
-            self.ws.send(json.dumps({
-                "type": "response.create",
-                "response": {
-                    "modalities": ["audio"],
-                    "instructions": self.prompt
-                }
-            }))
-
-        except subprocess.CalledProcessError as e:
-            print(f"[FFmpeg error] {e.output.decode('utf-8', 'ignore')}")
+                # 🔹 Ask OpenAI to generate a response (audio + text)
+                self.ws.send(json.dumps({
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["audio"],
+                        "instructions": self.prompt
+                    }
+                }))
+            else:
+                print("⚠️ No active OpenAI websocket — cannot commit.")
         except Exception as e:
             print(f"[WARN] commit_audio_buffer failed: {e}")
 

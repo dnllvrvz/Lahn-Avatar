@@ -65,7 +65,7 @@ class OpenAIRealtimeClient:
                 self.ws_client.send(json.dumps({"status": "audio_chunk_received"}))
         except Exception as e:
             print(f"[WARN] append_audio failed: {e}")
-            
+
 
     def commit_audio_buffer(self):
         """Tell OpenAI that user input is finished and request a response."""
@@ -86,6 +86,38 @@ class OpenAIRealtimeClient:
                 print("⚠️ No active OpenAI websocket — cannot commit.")
         except Exception as e:
             print(f"[WARN] commit_audio_buffer failed: {e}")
+
+
+    def connect_to_openai(self):
+        """Establish a persistent connection to the OpenAI Realtime API."""
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "OpenAI-Beta": "realtime=v1"
+        }
+
+        print("🔄 Connecting to OpenAI Realtime API...")
+        self.ws = websocket.WebSocketApp(
+            self.ws_url,
+            header=headers,
+            on_open=self._on_open,
+            on_message=self._on_message,
+            on_error=self._on_error,
+            on_close=self._on_close
+        )
+
+        ws_thread = threading.Thread(target=self.ws.run_forever, daemon=True)
+        ws_thread.start()
+
+        # Wait briefly until on_open fires
+        for _ in range(20):
+            if getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                print("✅ OpenAI realtime websocket ready.")
+                return
+            time.sleep(0.1)
+
+        raise RuntimeError("Failed to connect to OpenAI realtime websocket.")
+
 
 
 

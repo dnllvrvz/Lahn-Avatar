@@ -330,6 +330,7 @@ def stream(ws):
     system_prompt_ = system_prompt[:index]
 
     client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, streaming=True, ws_client = ws)
+    client.connect_to_openai()
     
     # Handle audio sent from frontend
     while True:

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm #, build_index, build_or_load_index, search_text_index
+from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines #, build_index, build_or_load_index, search_text_index
 from utils.utils import whisper_processor, whisper_model, transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
 
@@ -314,6 +314,34 @@ def voice_chat():
     except Exception as e:
         print({"error": str(e)})
         return jsonify({"error": str(e)}), 500
+
+
+
+from flask_sock import Sock
+sock = Sock(app)
+
+@sock.route('/api/voice-chat-stream')
+def stream(ws):
+    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nStreaming Voice Chat request received.')
+    global system_prompt
+
+    #Do away with function-related instructions, for now.
+    index = system_prompt.find('You also have access to sensory data')
+    system_prompt_ = system_prompt[:index]
+
+    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, streaming=True, ws_client = ws)
+    
+    # Handle audio sent from frontend
+    while True:
+        msg = ws.receive()
+        if msg is None:
+            break
+
+        if msg == "END":
+            client.commit_audio_buffer()
+            client.request_response()
+        else:
+            client.append_audio(msg)   # raw base64 chunks
 
 
 

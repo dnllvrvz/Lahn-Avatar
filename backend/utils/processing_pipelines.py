@@ -19,7 +19,7 @@ sensor_query_tool = LahnSensorsTool(sensor_query_llm)
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
-    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt=''):
+    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt='', streaming=False, ws_client=None):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
@@ -41,7 +41,35 @@ class OpenAIRealtimeClient:
         self.current_response_has_function_call = False
 
         self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
-        
+        self.streaming = streaming
+        self.ws_client = ws_client
+
+
+    def append_audio(self, base64_chunk):
+        # append incoming user audio
+        event = {
+            "type": "input_audio_buffer.append",
+            "audio": base64_chunk
+        }
+        self.ws.send(json.dumps(event))
+
+
+    def commit_audio_buffer(self):
+        event = {"type": "input_audio_buffer.commit"}
+        self.ws.send(json.dumps(event))
+
+        # immediately request a streamed response
+        self.ws.send(json.dumps({
+            "type": "response.create",
+            "response": {
+                "modalities": ["audio"],
+                "instructions": self.prompt
+            }
+        }))
+
+
+
+
     def process_audio(self, audio_input: str) -> Tuple[Optional[bytes], float, dict]:
         """Send audio to OpenAI Realtime API and get response."""
         start_time = time.time()
@@ -360,11 +388,15 @@ class OpenAIRealtimeClient:
                 # Accumulate audio chunks
                 delta = data.get('delta', '')
                 if delta:
-                    # Convert from base64 to bytes (not hex)
-                    import base64
-                    audio_chunk = base64.b64decode(delta)
-                    self.audio_buffer.extend(audio_chunk)
-                    # print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
+                    if not self.streaming:
+                        # Convert from base64 to bytes (not hex)
+                        import base64
+                        audio_chunk = base64.b64decode(delta)
+                        self.audio_buffer.extend(audio_chunk)
+                        # print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
+                    else:
+                        self.ws_client.send(json.dumps({"delta": delta}))
+
             
             elif event_type == 'response.done':
                 # Full response complete
@@ -380,7 +412,8 @@ class OpenAIRealtimeClient:
                         print("⚠️  No audio data received in response")
                     elif len(self.audio_buffer) > 0:
                         print(f"✅ Audio response complete ({len(self.audio_buffer)} bytes)")
-                    self.response_complete.set()
+                    if not self.streaming:
+                        self.response_complete.set()
                     self.awaiting_function_response = False
             
             elif event_type == 'response.text.delta':
@@ -502,6 +535,11 @@ class OpenAIRealtimeClient:
     
     def _on_close(self, ws, close_status_code, close_msg):
         """Handle WebSocket close."""
+        if self.ws_client:
+        try:
+            self.ws_client.close()
+        except:
+            pass
         print("🔌 Disconnected from OpenAI Realtime API")
 
 

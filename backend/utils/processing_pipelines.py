@@ -46,31 +46,23 @@ class OpenAIRealtimeClient:
 
 
     def append_audio(self, base64_chunk):
-        import base64, tempfile, subprocess, os
+        """Forward each base64 audio chunk to OpenAI if connected, else buffer."""
         try:
-            # 1️⃣  Decode base64 → bytes
-            webm_bytes = base64.b64decode(base64_chunk)
-
-            # 2️⃣  Write to temp file
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f_in:
-                f_in.write(webm_bytes)
-                f_in.flush()
-                tmp_in = f_in.name
-
-            # 3️⃣  Convert WebM/Opus → PCM16 (24 kHz mono)
-            pcm_data = subprocess.check_output([
-                "ffmpeg", "-i", tmp_in, "-ar", "24000", "-ac", "1",
-                "-f", "s16le", "pipe:1", "-loglevel", "error"
-            ])
-            os.remove(tmp_in)
-
-            # 4️⃣  Base64-encode PCM and send to OpenAI
-            pcm_b64 = base64.b64encode(pcm_data).decode("utf-8")
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                # 🔹 Send chunk directly to OpenAI realtime API
                 self.ws.send(json.dumps({
                     "type": "input_audio_buffer.append",
-                    "audio": pcm_b64
+                    "audio": base64_chunk
                 }))
+            else:
+                # 🔹 No active OpenAI socket yet → buffer locally
+                import base64
+                decoded = base64.b64decode(base64_chunk)
+                self.audio_buffer.extend(decoded)
+
+            # Optional: let browser know chunk was received
+            if self.ws_client:
+                self.ws_client.send(json.dumps({"status": "audio_chunk_received"}))
         except Exception as e:
             print(f"[WARN] append_audio failed: {e}")
 

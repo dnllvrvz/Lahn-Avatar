@@ -28,88 +28,48 @@ export default function VoiceChatStream() {
   // START STREAMING RECORDING
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
-    // Create websocket
     wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
+    await new Promise((resolve) => (wsRef.current.onopen = resolve));
     wsRef.current.onmessage = handleWsMessage;
 
-    // Wait until connected before starting to record
-    await new Promise((resolve, reject) => {
-      wsRef.current.onopen = () => {
-        console.log("✅ WS connected");
-        resolve();
-      };
-      wsRef.current.onerror = (e) => {
-        console.error("❌ WebSocket error:", e);
-        reject(e);
-      };
-    });
-
+    const audioCtx = new AudioContext({ sampleRate: 48000 });
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    userStreamRef.current = stream;
-
-    mediaRecorderRef.current = new MediaRecorder(stream, {
-      mimeType: "audio/webm",
-    });
-    audioChunksRef.current = [];
-
-    /** Live volume meter */
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    userAnalyserRef.current = analyser;
 
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+    const downsampleTarget = 24000;
+    const ratio = audioCtx.sampleRate / downsampleTarget;
 
-    const updateVolume = () => {
-      analyser.getByteFrequencyData(dataArray);
-      const rms = Math.sqrt(
-        dataArray.reduce((sum, v) => sum + v * v, 0) / dataArray.length
-      );
-      setUserVolume(rms / 128);
-      rafIdRef.current = requestAnimationFrame(updateVolume);
-    };
-    updateVolume();
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      // downsample
+      const downsampled = new Float32Array(Math.floor(input.length / ratio));
+      for (let i = 0, j = 0; i < input.length; i += ratio, j++)
+        downsampled[j] = input[Math.floor(i)];
 
-    setAvatarThinking(true);
-
-    mediaRecorderRef.current.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        // Stream raw chunks to backend
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result.split(',')[1]; // strip "data:audio/webm;base64,"
-          if (wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(base64data);
-          }
-        };
-        reader.readAsDataURL(e.data);
-
+      // float → int16
+      const pcm16 = new Int16Array(downsampled.length);
+      for (let i = 0; i < downsampled.length; i++) {
+        let s = Math.max(-1, Math.min(1, downsampled[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
+
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64);
     };
 
-    mediaRecorderRef.current.onstart = () => setUserSpeaking(true);
-
-    mediaRecorderRef.current.onstop = () => {
-      setUserSpeaking(false);
-      cancelAnimationFrame(rafIdRef.current);
-      setUserVolume(0);
-
-      // tell backend input is complete
-      wsRef.current.send("END");
-      userStreamRef.current.getTracks().forEach((t) => t.stop());
-    };
-
-    mediaRecorderRef.current.start(250); // send chunks every 250ms
-    setIsRecording(true);
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
   };
+
 
   // ─────────────────────────────────────────────────────────────
   // STOP RECORDING
   // ─────────────────────────────────────────────────────────────
   const stopRecording = () => {
-    mediaRecorderRef.current.stop();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send("END");
+    }
     setIsRecording(false);
   };
 

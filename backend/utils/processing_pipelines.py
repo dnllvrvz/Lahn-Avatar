@@ -536,10 +536,10 @@ class OpenAIRealtimeClient:
     def _on_close(self, ws, close_status_code, close_msg):
         """Handle WebSocket close."""
         if self.ws_client:
-        try:
-            self.ws_client.close()
-        except:
-            pass
+            try:
+                self.ws_client.close()
+            except:
+                pass
         print("🔌 Disconnected from OpenAI Realtime API")
 
 

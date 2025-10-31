@@ -34,7 +34,7 @@ numpy==1.26.4
 
 flask
 flask-cors
-
+flask_sock
 
 
 #speech-to-speech

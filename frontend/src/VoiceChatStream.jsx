@@ -30,7 +30,7 @@ export default function VoiceChatStream() {
   const startRecording = async () => {
     // Open websocket if needed
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      wsRef.current = new WebSocket("ws://" + window.location.host + "/api/voice-chat-stream");
+      wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
       wsRef.current.onmessage = handleWsMessage;
     }
 

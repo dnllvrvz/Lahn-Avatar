@@ -46,26 +46,54 @@ class OpenAIRealtimeClient:
 
 
     def append_audio(self, base64_chunk):
-        # append incoming user audio
-        event = {
-            "type": "input_audio_buffer.append",
-            "audio": base64_chunk
-        }
-        self.ws.send(json.dumps(event))
+        """Handle incoming base64 audio chunks from the browser.
 
+        If OpenAI realtime connection is active, stream them directly.
+        Otherwise, buffer them locally until commit_audio_buffer() is called.
+        """
+        try:
+            # If we already have a live OpenAI websocket connection
+            if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                self.ws.send(json.dumps({
+                    "type": "input_audio_buffer.append",
+                    "audio": base64_chunk
+                }))
+            else:
+                # Buffer the chunks for later processing
+                import base64
+                decoded = base64.b64decode(base64_chunk)
+                self.audio_buffer.extend(decoded)
+            
+            # (Optional) Notify the browser that the chunk was received
+            if self.ws_client:
+                self.ws_client.send(json.dumps({
+                    "status": "audio_chunk_received"
+                }))
+        except Exception as e:
+            print(f"[WARN] append_audio failed: {e}")
+            
 
     def commit_audio_buffer(self):
-        event = {"type": "input_audio_buffer.commit"}
-        self.ws.send(json.dumps(event))
+        """Commit buffered audio and request a response from OpenAI."""
+        try:
+            if not self.ws or not (getattr(self.ws, "sock", None) and self.ws.sock.connected):
+                print("⚠️ No active OpenAI websocket; processing buffered audio instead.")
+                import io
+                self.process_audio(io.BytesIO(self.audio_buffer))
+                return
+            
+            # Send commit + request if already connected
+            self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+            self.ws.send(json.dumps({
+                "type": "response.create",
+                "response": {
+                    "modalities": ["audio"],
+                    "instructions": self.prompt
+                }
+            }))
+        except Exception as e:
+            print(f"[WARN] commit_audio_buffer failed: {e}")
 
-        # immediately request a streamed response
-        self.ws.send(json.dumps({
-            "type": "response.create",
-            "response": {
-                "modalities": ["audio"],
-                "instructions": self.prompt
-            }
-        }))
 
 
 

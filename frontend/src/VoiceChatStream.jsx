@@ -24,6 +24,9 @@ export default function VoiceChatStream() {
   const pmBufferRef = useRef([]);
   const rafIdRef = useRef(null);
 
+  const nextPlayTimeRef = useRef(0);
+
+
   // ─────────────────────────────────────────────────────────────
   // START STREAMING RECORDING
   // ─────────────────────────────────────────────────────────────
@@ -94,7 +97,10 @@ export default function VoiceChatStream() {
       const arrayBuffer = e.data instanceof Blob ? await e.data.arrayBuffer() : e.data;
 
       const audioCtx = avatarAudioRef.current || new AudioContext({ sampleRate: 24000 });
-      if (!avatarAudioRef.current) avatarAudioRef.current = audioCtx;
+      if (!avatarAudioRef.current) {
+        avatarAudioRef.current = audioCtx;
+        nextPlayTimeRef.current = audioCtx.currentTime; // start from "now"
+      }
 
       const pcm16 = new Int16Array(arrayBuffer);
       const float32 = new Float32Array(pcm16.length);
@@ -105,16 +111,21 @@ export default function VoiceChatStream() {
       const src = audioCtx.createBufferSource();
       src.buffer = buffer;
       src.connect(audioCtx.destination);
-      src.start();
+
+      // schedule chunk to start sequentially
+      const startAt = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
+      src.start(startAt);
+      nextPlayTimeRef.current = startAt + buffer.duration;
 
       if (!avatarPlaying) setAvatarPlaying(true);
       return;
     }
 
+
     // Case 2: Text (JSON) control message
     try {
       const msg = JSON.parse(e.data);
-      console.log("Text message:", msg);
+      // console.log("Text message:", msg);
       if (msg.text) {
         // handle model text here
       }

@@ -185,34 +185,36 @@ class OpenAIRealtimeClient:
         
         try:
             # Create WebSocket connection
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "OpenAI-Beta": "realtime=v1"
-            }
+
+            self.connect_to_openai()
+            # headers = {
+            #     "Authorization": f"Bearer {self.api_key}",
+            #     "OpenAI-Beta": "realtime=v1"
+            # }
             
-            print("🔄 Connecting to OpenAI Realtime API...")
-            self.ws = websocket.WebSocketApp(
-                self.ws_url,
-                header=headers,
-                on_open=self._on_open,
-                on_message=self._on_message,
-                on_error=self._on_error,
-                on_close=self._on_close
-            )
+            # print("🔄 Connecting to OpenAI Realtime API...")
+            # self.ws = websocket.WebSocketApp(
+            #     self.ws_url,
+            #     header=headers,
+            #     on_open=self._on_open,
+            #     on_message=self._on_message,
+            #     on_error=self._on_error,
+            #     on_close=self._on_close
+            # )
             
-            # Start WebSocket in a separate thread
-            ws_thread = threading.Thread(target=self.ws.run_forever)
-            ws_thread.daemon = True
-            ws_thread.start()
+            # # Start WebSocket in a separate thread
+            # ws_thread = threading.Thread(target=self.ws.run_forever)
+            # ws_thread.daemon = True
+            # ws_thread.start()
             
-            # Wait for session to be created
-            session_timeout = 5
-            session_start = time.time()
-            while not self.session_id and time.time() - session_start < session_timeout:
-                time.sleep(0.1)
+            # # Wait for session to be created
+            # session_timeout = 5
+            # session_start = time.time()
+            # while not self.session_id and time.time() - session_start < session_timeout:
+            #     time.sleep(0.1)
             
-            if not self.session_id:
-                raise Exception("Failed to establish session with Realtime API")
+            # if not self.session_id:
+            #     raise Exception("Failed to establish session with Realtime API")
             
             # Send audio input
             if self.ws.sock and self.ws.sock.connected:
@@ -417,6 +419,8 @@ class OpenAIRealtimeClient:
             }
         }
         ws.send(json.dumps(session_update))
+
+        print('\n\nSystem prompt: ', self.prompt)
 
     
     def _on_message(self, ws, message):

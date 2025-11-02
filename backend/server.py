@@ -291,9 +291,9 @@ def voice_chat():
         if pipeline == "OpenAI gpt-realtime":
             client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_)
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
-        elif pipeline == "OpenAI gpt4o":
-            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt_)
-            response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
+        # elif pipeline == "OpenAI gpt4o":
+        #     client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt_)
+        #     response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         # elif pipeline == "Cartesia":
         #     client = CartesiaOpenAIPipeline(CARTESIA_API_KEY, OPENAI_API_KEY, prompt = system_prompt_)
         #     response_audio, elapsed, cost_info = client.process_audio(audio_bytes)

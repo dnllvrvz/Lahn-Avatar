@@ -188,34 +188,6 @@ class OpenAIRealtimeClient:
             # Create WebSocket connection
 
             self.connect_to_openai()
-            # headers = {
-            #     "Authorization": f"Bearer {self.api_key}",
-            #     "OpenAI-Beta": "realtime=v1"
-            # }
-            
-            # print("🔄 Connecting to OpenAI Realtime API...")
-            # self.ws = websocket.WebSocketApp(
-            #     self.ws_url,
-            #     header=headers,
-            #     on_open=self._on_open,
-            #     on_message=self._on_message,
-            #     on_error=self._on_error,
-            #     on_close=self._on_close
-            # )
-            
-            # # Start WebSocket in a separate thread
-            # ws_thread = threading.Thread(target=self.ws.run_forever)
-            # ws_thread.daemon = True
-            # ws_thread.start()
-            
-            # # Wait for session to be created
-            # session_timeout = 5
-            # session_start = time.time()
-            # while not self.session_id and time.time() - session_start < session_timeout:
-            #     time.sleep(0.1)
-            
-            # if not self.session_id:
-            #     raise Exception("Failed to establish session with Realtime API")
             
             # Send audio input
             if self.ws.sock and self.ws.sock.connected:
@@ -262,7 +234,7 @@ class OpenAIRealtimeClient:
                     "type": "response.create",
                     "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
+                            # "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
                             }
                 }
                 self.ws.send(json.dumps(response_event))
@@ -310,7 +282,7 @@ class OpenAIRealtimeClient:
             if self.ws:
                 time.sleep(0.5)  # Small delay to ensure all audio chunks are received
                 self.ws.close()
-                ws_thread.join(timeout=2)
+                self.ws_thread.join(timeout=2)
                 
         except Exception as e:
             error = str(e)
@@ -409,7 +381,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": self.prompt, #"You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": self.prompt + "\n For every reponse you give, carry out this language-consistency check: What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.", #"You are a helpful AI assistant. Give very short, direct answers.",
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -446,14 +418,16 @@ class OpenAIRealtimeClient:
                 # Accumulate audio chunks
                 delta = data.get('delta', '')
                 if delta:
+                    # Convert from base64 to bytes (not hex)
+                    import base64
+                    audio_chunk = base64.b64decode(delta)
                     if not self.streaming:
-                        # Convert from base64 to bytes (not hex)
-                        import base64
-                        audio_chunk = base64.b64decode(delta)
                         self.audio_buffer.extend(audio_chunk)
                         # print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
                     else:
-                        self.ws_client.send(json.dumps({"delta": delta}))
+                        # Send raw binary frame instead of JSON
+                        self.ws_client.send(audio_bytes, binary=True)
+                        # self.ws_client.send(json.dumps({"delta": delta}))
 
             
             elif event_type == 'response.done':

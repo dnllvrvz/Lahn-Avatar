@@ -26,6 +26,9 @@ export default function VoiceChatStream() {
 
   const nextPlayTimeRef = useRef(0);
 
+  const avatarPlayingRef = useRef(false);
+
+
 
   // ─────────────────────────────────────────────────────────────
   // START STREAMING RECORDING
@@ -43,6 +46,26 @@ export default function VoiceChatStream() {
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioCtx.createMediaStreamSource(stream);
+
+    // ── Mic volume analyser for green ripple ──
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    source.connect(analyser);
+
+    const updateUserVolume = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const rms = Math.sqrt(
+        dataArray.reduce((s, v) => s + v * v, 0) / dataArray.length
+      );
+      const normalized = rms / 128;
+      setUserVolume(normalized);
+      setUserSpeaking(normalized > 0.05); // threshold ≈ silence floor
+      requestAnimationFrame(updateUserVolume);
+    };
+    updateUserVolume();
+
+
     const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
 
     const downsampleTarget = 24000;
@@ -117,7 +140,17 @@ export default function VoiceChatStream() {
       src.start(startAt);
       nextPlayTimeRef.current = startAt + buffer.duration;
 
-      if (!avatarPlaying) setAvatarPlaying(true);
+      if (!avatarPlaying) {
+        setAvatarPlaying(true);
+        avatarPlayingRef.current = true;
+      }
+
+      // When playback finishes, reset the ripple
+      src.onended = () => {
+        setAvatarPlaying(false);
+        avatarPlayingRef.current = false;
+        setAvatarVolume(0);
+      };
       return;
     }
 
@@ -189,7 +222,7 @@ export default function VoiceChatStream() {
       );
       setAvatarVolume(rms / 128);
 
-      if (avatarPlaying) requestAnimationFrame(loop);
+      if (avatarPlayingRef.current) requestAnimationFrame(loop);
       else setAvatarVolume(0);
     };
     loop();

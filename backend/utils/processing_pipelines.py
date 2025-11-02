@@ -525,7 +525,7 @@ class OpenAIRealtimeClient:
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"+result
+                            "instructions": "Function response: "+result +" (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")

@@ -29,6 +29,8 @@ export default function VoiceChatStream() {
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
     wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
+    wsRef.current.binaryType = "arraybuffer";
+
     wsRef.current.onmessage = handleWsMessage;
     await new Promise((resolve) => (wsRef.current.onopen = resolve));
     console.log("✅ WS connected");
@@ -86,28 +88,41 @@ export default function VoiceChatStream() {
   // ─────────────────────────────────────────────────────────────
   // WebSocket handler (receiving streamed chunks)
   // ─────────────────────────────────────────────────────────────
-  const handleWsMessage = (e) => {
-    const msg = JSON.parse(e.data);
+  const handleWsMessage = async (e) => {
+    // Case 1: Binary PCM audio frame
+    if (e.data instanceof Blob || e.data instanceof ArrayBuffer) {
+      const arrayBuffer = e.data instanceof Blob ? await e.data.arrayBuffer() : e.data;
 
-    if (msg.delta) {
-      // Avatar begins responding — stop thinking state
-      if (avatarThinking) setAvatarThinking(false);
+      const audioCtx = avatarAudioRef.current || new AudioContext({ sampleRate: 24000 });
+      if (!avatarAudioRef.current) avatarAudioRef.current = audioCtx;
 
-      const base64Data = msg.delta;
-      const pcm = atob(base64Data);
+      const pcm16 = new Int16Array(arrayBuffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
 
-      // Accumulate until playback object exists
-      pmBufferRef.current.push(pcm);
+      const buffer = audioCtx.createBuffer(1, float32.length, 24000);
+      buffer.copyToChannel(float32, 0);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(audioCtx.destination);
+      src.start();
 
-      // Lazy-initialize audio system
-      if (!avatarAudioRef.current) {
-        initAvatarAudio();
+      if (!avatarPlaying) setAvatarPlaying(true);
+      return;
+    }
+
+    // Case 2: Text (JSON) control message
+    try {
+      const msg = JSON.parse(e.data);
+      console.log("Text message:", msg);
+      if (msg.text) {
+        // handle model text here
       }
-
-      // Append PCM
-      feedPCMToAvatar(pcm);
+    } catch (err) {
+      console.warn("Non-JSON text message:", e.data);
     }
   };
+
 
   // Initialize WebAudio node graph
   const initAvatarAudio = () => {

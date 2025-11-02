@@ -393,7 +393,7 @@ class OpenAIRealtimeClient:
         }
         ws.send(json.dumps(session_update))
 
-        print('\n\nSystem prompt: ', self.prompt)
+        # print('\n\nSystem prompt: ', self.prompt)
 
     
     def _on_message(self, ws, message):
@@ -440,7 +440,7 @@ class OpenAIRealtimeClient:
                     # Don't set response_complete - we're waiting for the function result response
                 else:
                     # This is either a direct response or the post-function-call audio response
-                    if len(self.audio_buffer) == 0 and not self.awaiting_function_response:
+                    if len(self.audio_buffer) == 0 and not self.awaiting_function_response and self.streaming==False:
                         print("⚠️  No audio data received in response")
                     elif len(self.audio_buffer) > 0:
                         print(f"✅ Audio response complete ({len(self.audio_buffer)} bytes)")

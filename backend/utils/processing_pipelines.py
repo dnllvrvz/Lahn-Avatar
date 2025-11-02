@@ -426,7 +426,7 @@ class OpenAIRealtimeClient:
                         # print(f"🎵 Received audio chunk: {len(audio_chunk)} bytes (total: {len(self.audio_buffer)} bytes)")
                     else:
                         # Send raw binary frame instead of JSON
-                        self.ws_client.send(audio_chunk, binary=True)
+                        self.ws_client.send(audio_chunk) #, binary=True)
                         # self.ws_client.send(json.dumps({"delta": delta}))
 
             

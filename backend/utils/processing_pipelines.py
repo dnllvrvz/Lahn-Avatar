@@ -43,6 +43,7 @@ class OpenAIRealtimeClient:
         self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
         self.streaming = streaming
         self.ws_client = ws_client
+        self.ws_thread = None
 
 
     def append_audio(self, base64_chunk):
@@ -106,8 +107,8 @@ class OpenAIRealtimeClient:
             on_close=self._on_close
         )
 
-        ws_thread = threading.Thread(target=self.ws.run_forever, daemon=True)
-        ws_thread.start()
+        self.ws_thread = threading.Thread(target=self.ws.run_forever, daemon=True)
+        self.ws_thread.start()
 
         # Wait briefly until on_open fires
         for _ in range(20):

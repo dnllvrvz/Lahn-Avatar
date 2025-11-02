@@ -367,6 +367,8 @@ def extract_keywords(text):
     # Extract nouns and proper nouns as keywords
     keywords = [token.text for token in doc if token.pos_ in ("NOUN", "PROPN", "X") and (not token.is_stop or token.pos_ == "PROPN")] #if (token.pos_ in ("NOUN", "PROPN", "X") or (token.text[0].isupper() and token.i != 0)) and not token.is_stop]
     keywords = list(set(keywords))  # remove duplicates
+    if len(keywords) == 0:
+        keywords = text.split(' ')
     print('Keywords: ', keywords)
     #Handle empty keywords ***
 

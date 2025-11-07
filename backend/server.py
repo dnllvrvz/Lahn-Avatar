@@ -67,6 +67,7 @@ def chat():
     data = request.get_json()
     prompt = data.get("prompt", "")
     conversation = data.get("history", "")
+    print('Conversation history: ', conversation)
     topic = data.get("topic", None)
     if topic:
         print(f"→ Debate topic: {topic}")

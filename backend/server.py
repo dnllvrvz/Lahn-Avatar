@@ -114,7 +114,7 @@ def chat():
         # analysis = str(api_tool(query))
         analysis = str(sensor_query_tool(query))
         print('Analysis: ', analysis)
-        results = '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user\'s last message in? Make sure to respond in the same language.'
+        results = '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not return a function call. What language was the user\'s last message in? Make sure to respond in the same language.' #Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result.
 
     # if len(results)>0:
         print('Passing analysis results to LLM..') #: ', chat_history+[{'role':'system', 'content':results}])

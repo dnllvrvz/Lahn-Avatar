@@ -61,6 +61,12 @@ export default function VoiceChatStream() {
     source.connect(analyser);
 
     const updateUserVolume = () => {
+      if (!isRecording) {
+        setUserSpeaking(false);
+        setUserVolume(0);
+        return; // stop updating if not recording
+      }
+
       analyser.getByteFrequencyData(dataArray);
       const rms = Math.sqrt(
         dataArray.reduce((s, v) => s + v * v, 0) / dataArray.length
@@ -70,7 +76,7 @@ export default function VoiceChatStream() {
       setUserSpeaking(normalized > 0.05); // threshold ≈ silence floor
       requestAnimationFrame(updateUserVolume);
     };
-    updateUserVolume();
+
 
 
     const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
@@ -103,6 +109,7 @@ export default function VoiceChatStream() {
     worklet.connect(audioCtx.destination);
 
     setIsRecording(true);
+    updateUserVolume(); // start monitoring only when active
     userStreamRef.current = stream;
   };
 
@@ -115,6 +122,13 @@ export default function VoiceChatStream() {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send("END");
     }
+    if (userStreamRef.current) {
+      userStreamRef.current.getTracks().forEach((t) => t.stop());
+      userStreamRef.current = null;
+    }
+    setUserSpeaking(false);
+    setUserVolume(0);
+
     setIsRecording(false);
   };
 
@@ -253,7 +267,7 @@ export default function VoiceChatStream() {
 
       {/* Subtitle / Instructions */}
       <p className="text-stone-700 text-center mb-8 max-w-lg">
-        Press the microphone button below to talk to the river. Release when you’re done speaking — she’ll answer in her own voice.
+        Press the microphone button below to talk to the river. Press again when you’re done speaking — she’ll answer in her own voice.
       </p>
 
       {/* USER RIPPLE */}
@@ -336,6 +350,8 @@ export default function VoiceChatStream() {
               Visitors can speak to the Lahn in real time: she listens,
               understands, and replies — inviting reflection on the relationship
               between humans and their living environment.
+              <br /><br />
+              Technical support provided by Mayowa Osibodu and Stanislav Hannes.
             </DialogDescription>
           </DialogHeader>
         </DialogContent>

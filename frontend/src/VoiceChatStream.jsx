@@ -16,6 +16,7 @@ export default function VoiceChatStream() {
   const [avatarPlaying, setAvatarPlaying] = useState(false);
   const [avatarVolume, setAvatarVolume] = useState(0);
   const [avatarThinking, setAvatarThinking] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const wsRef = useRef(null);
 

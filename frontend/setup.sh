@@ -27,7 +27,7 @@ echo "📦 Installing base dependencies..."
 npm install
 
 echo "🎨 Installing Tailwind CSS and related packages..."
-npm install -D tailwindcss@3.4.17 postcss autoprefixer @tailwindcss/postcss @radix-ui/react-switch
+npm install -D tailwindcss@3.4.17 postcss autoprefixer @tailwindcss/postcss @radix-ui/react-switch @fontsource/chakra-petch
 
 
 echo "💫 Installing animations and routing..."

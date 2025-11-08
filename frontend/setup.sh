@@ -46,7 +46,8 @@ if [ ! -f components.json ]; then
 fi
 
 echo "🧩 Adding common UI components (label, textarea)..."
-npx shadcn@latest add label textarea switch
+npx shadcn@latest add label textarea switch dialog
+
 
 echo "✅ Tailwind & shadcn-ui configured."
 echo "🚀 You're ready! Run the dev server with:"

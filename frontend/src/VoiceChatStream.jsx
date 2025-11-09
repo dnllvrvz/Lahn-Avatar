@@ -62,8 +62,9 @@ export default function VoiceChatStream() {
 
     const updateUserVolume = () => {
       if (!isRecording) {
-        setUserSpeaking(false);
-        setUserVolume(0);
+        requestAnimationFrame(updateUserVolume); // keep checking until active
+        // setUserSpeaking(false);
+        // setUserVolume(0);
         return; // stop updating if not recording
       }
 
@@ -109,7 +110,7 @@ export default function VoiceChatStream() {
     worklet.connect(audioCtx.destination);
 
     setIsRecording(true);
-    updateUserVolume(); // start monitoring only when active
+    setTimeout(() => updateUserVolume(), 50); // give React a moment to update state
     userStreamRef.current = stream;
   };
 
@@ -166,12 +167,16 @@ export default function VoiceChatStream() {
         avatarPlayingRef.current = true;
       }
 
-      // When playback finishes, reset the ripple
       src.onended = () => {
-        setAvatarPlaying(false);
-        avatarPlayingRef.current = false;
-        setAvatarVolume(0);
+        const now = audioCtx.currentTime;
+        // if next chunk isn’t scheduled within 0.1s, assume playback done
+        if (now >= nextPlayTimeRef.current - 0.1) {
+          setAvatarPlaying(false);
+          avatarPlayingRef.current = false;
+          setAvatarVolume(0);
+        }
       };
+
       return;
     }
 

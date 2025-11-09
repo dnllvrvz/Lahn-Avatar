@@ -81,7 +81,7 @@ def chat():
     chat_history = []
 
     chat_history = [
-        {'role':"user" if m["sender"] == "user" else "assistant", 'content':m["text"]}
+        {'role':"user" if m["sender"].lower() == "user" else "assistant", 'content':m["text"]}
         for m in conversation
         ]
 

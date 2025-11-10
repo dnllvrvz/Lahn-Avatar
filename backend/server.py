@@ -85,6 +85,9 @@ def chat():
         for m in conversation
         ]
 
+    if len(chat_history) == 0:
+        return jsonify({"error": 'Invalid request format. Ensure your payload has "history" in the format [{"sender": "User", "text": "content"}, ...]'})
+
     chat_history.insert(0, {'role':'system', 'content':system_prompt_})
 
     print('Obtaining information for the LLM...')

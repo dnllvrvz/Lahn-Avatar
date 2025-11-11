@@ -332,7 +332,6 @@ export default function VoiceChatStream() {
         />
       </div>
 
-      // Add this inside the UI section, just below the AVATAR RIPPLE block
       {avatarPlaying || avatarPaused ? (
         <div className="relative z-10 flex justify-center mt-28">
           <Button onClick={toggleAvatarPlayback}>

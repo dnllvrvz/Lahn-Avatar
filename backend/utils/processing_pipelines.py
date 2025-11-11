@@ -89,35 +89,38 @@ class OpenAIRealtimeClient:
             print(f"[WARN] commit_audio_buffer failed: {e}")
 
 
-    def connect_to_openai(self):
-        """Establish a persistent connection to the OpenAI Realtime API."""
-
+    def connect_to_openai(self, retries=3):
+        """Establish a persistent connection to the OpenAI Realtime API with retries."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "OpenAI-Beta": "realtime=v1"
+            "OpenAI-Beta": "realtime=v1",
         }
 
-        print("🔄 Connecting to OpenAI Realtime API...")
-        self.ws = websocket.WebSocketApp(
-            self.ws_url,
-            header=headers,
-            on_open=self._on_open,
-            on_message=self._on_message,
-            on_error=self._on_error,
-            on_close=self._on_close
-        )
+        for attempt in range(1, retries + 1):
+            print(f"🔄 Connecting to OpenAI Realtime API (attempt {attempt}/{retries})...")
+            self.ws = websocket.WebSocketApp(
+                self.ws_url,
+                header=headers,
+                on_open=self._on_open,
+                on_message=self._on_message,
+                on_error=self._on_error,
+                on_close=self._on_close,
+            )
 
-        self.ws_thread = threading.Thread(target=self.ws.run_forever, daemon=True)
-        self.ws_thread.start()
+            self.ws_thread = threading.Thread(target=self.ws.run_forever, daemon=True)
+            self.ws_thread.start()
 
-        # Wait briefly until on_open fires
-        for _ in range(20):
-            if getattr(self.ws, "sock", None) and self.ws.sock.connected:
-                print("✅ OpenAI realtime websocket ready.")
-                return
-            time.sleep(0.1)
+            for _ in range(50):  # wait up to 5 s
+                if getattr(self.ws, "sock", None) and self.ws.sock.connected:
+                    print("✅ OpenAI realtime websocket ready.")
+                    return
+                time.sleep(0.1)
 
-        raise RuntimeError("Failed to connect to OpenAI realtime websocket.")
+            print("⚠️ Connection attempt timed out.")
+            time.sleep(1)  # brief pause before retry
+
+        raise RuntimeError("Failed to connect to OpenAI realtime websocket after retries.")
+
 
 
 

@@ -308,7 +308,7 @@ export default function VoiceChatStream() {
 
     {/* BACKGROUND VIDEO */}
     <video
-      src="/lahn_video_stitched.mov"
+      src="/lahn_video_stitched.mp4"
       autoPlay
       muted
       loop

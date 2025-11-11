@@ -318,15 +318,15 @@ export default function VoiceChatStream() {
     ></video>
 
     {/* Optional overlay for readability */}
-    <div className="fixed inset-0 bg-gradient-to-b from-black/40 to-emerald-900/30 -z-10" />
+    <div className="fixed inset-0 bg-gradient-to-b from-black/60 via-black/30 to-emerald-900/50 z-0" />
 
       {/* Page Title */}
-      <h1 className="text-4xl md:text-5xl font-bold text-amber-700 mb-2 text-center">
+      <h1 className="text-4xl md:text-5xl font-bold text-amber-700 mb-2 text-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
         Ever heard a river speak?<br />Meet the Lahn — she has a lot to say.
       </h1>
 
       {/* Subtitle / Instructions */}
-      <p className="text-stone-700 text-center mb-8 max-w-lg">
+      <p className="text-stone-700 text-center mb-8 max-w-lg drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
         Press the microphone button below to talk to the river. Press again when you’re done speaking — she’ll answer in her own voice.
       </p>
 

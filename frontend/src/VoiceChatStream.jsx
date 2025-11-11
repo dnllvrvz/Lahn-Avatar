@@ -35,6 +35,10 @@ export default function VoiceChatStream() {
 
   const avatarPlayingRef = useRef(false);
 
+  // Add near other state variables
+  const [avatarPaused, setAvatarPaused] = useState(false);
+
+
 
 
   // ─────────────────────────────────────────────────────────────
@@ -232,6 +236,24 @@ export default function VoiceChatStream() {
     setAvatarPlaying(true);
   };
 
+  // Add this new function after feedPCMToAvatar()
+  const toggleAvatarPlayback = () => {
+    if (!avatarAudioRef.current) return;
+    const ctx = avatarAudioRef.current;
+    if (avatarPaused) {
+      ctx.resume();
+      setAvatarPaused(false);
+      setAvatarPlaying(true);
+      avatarPlayingRef.current = true;
+    } else {
+      ctx.suspend();
+      setAvatarPaused(true);
+      setAvatarPlaying(false);
+      avatarPlayingRef.current = false;
+    }
+  };
+
+
   // ─────────────────────────────────────────────────────────────
   // Avatar ripple audio volume
   // ─────────────────────────────────────────────────────────────
@@ -309,6 +331,16 @@ export default function VoiceChatStream() {
           transition={{ duration: 0.1 }}
         />
       </div>
+
+      // Add this inside the UI section, just below the AVATAR RIPPLE block
+      {avatarPlaying || avatarPaused ? (
+        <div className="relative z-10 flex justify-center mt-28">
+          <Button onClick={toggleAvatarPlayback}>
+            {avatarPaused ? "▶ Resume Avatar" : "⏸ Pause Avatar"}
+          </Button>
+        </div>
+      ) : null}
+
 
       {/* MIC BUTTON */}
       <div className="mt-6">

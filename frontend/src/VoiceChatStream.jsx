@@ -45,6 +45,8 @@ export default function VoiceChatStream() {
   // START STREAMING RECORDING
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
+    resetAvatarAudio(); // discard any previous queued or paused audio
+    
     wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
     wsRef.current.binaryType = "arraybuffer";
 
@@ -136,6 +138,22 @@ export default function VoiceChatStream() {
 
     setIsRecording(false);
   };
+
+
+  const resetAvatarAudio = () => {
+    const ctx = avatarAudioRef.current;
+    if (ctx) {
+      try {
+        ctx.close(); // stop all pending buffers
+      } catch {}
+    }
+    avatarAudioRef.current = null;
+    nextPlayTimeRef.current = 0;
+    avatarPlayingRef.current = false;
+    setAvatarPlaying(false);
+    setAvatarPaused(false);
+  };
+
 
   // ─────────────────────────────────────────────────────────────
   // WebSocket handler (receiving streamed chunks)

@@ -344,20 +344,112 @@ export default function VoiceChatStream() {
       <Dialog open={showAbout} onOpenChange={setShowAbout}>
         <DialogContent className="max-w-lg text-stone-800">
           <DialogHeader>
-            <DialogTitle>About the Lahn River Avatar</DialogTitle>
-            <DialogDescription>
-              The Lahn River Avatar is an interactive AI installation created by
-              Danilo Vaz and Ingvild Syntropia, as part of the Planetary
-              Thinking Fellowship at Justus Liebig University, Giessen, Germany.
-              It gives the river a voice to share her stories, history, and
-              ecological concerns — blending environmental science, art, and AI.
-              <br /><br />
-              Visitors can speak to the Lahn in real time: she listens,
-              understands, and replies — inviting reflection on the relationship
-              between humans and their living environment.
-              <br /><br />
-              Technical support provided by Mayowa Osibodu and Stanislav Hannes.
+            <DialogDescription className="space-y-5 leading-relaxed">
+              {/* Sculpture image */}
+              <img
+                src="/sculpture.jpg"
+                alt="Lahn River Avatar sculpture"
+                className="w-full rounded-2xl shadow-md border border-stone-300"
+              />
+
+              <p>
+                The <strong>Lahn River Avatar</strong> is an AI-powered ecological artwork and
+                research project that serves as an expression medium to the Lahn River in Germany.
+                Developed by the artist-philosopher duo{" "}
+                <a
+                  href="https://www.uni-giessen.de/en/faculties/planetarythinking/events/eventseries/conferencefinal/finalconference/#daniloolivaz"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  Danilo Olivaz
+                </a>{" "}
+                and{" "}
+                <a
+                  href="https://www.uni-giessen.de/en/faculties/planetarythinking/events/eventseries/conferencefinal/finalconference/#ingvildsyntropia"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  Ingvild Syntropia
+                </a>{" "}
+                in context of their fellowship at the{" "}
+                <a
+                  href="https://www.uni-giessen.de/en/faculties/planetarythinking"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  Panel on Planetary Thinking
+                </a>
+                , the project investigates planetary agency through the convergence of art,
+                technology, and environmental ethics.
+              </p>
+
+              <p>
+                <a
+                  href="https://lahn-avatar.uni-giessen.de/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  https://lahn-avatar.uni-giessen.de
+                </a>
+              </p>
+
+              <p>
+                Embodied in a voice-activated sculpture crafted from local and upcycled materials,
+                the Avatar integrates real-time environmental data, scientific research, and
+                cultural knowledge specific to the Lahn.
+              </p>
+
+              <p>
+                Positioned at the Lahnfenster, it serves as both a poetic and political gesture—an
+                invitation to collective deliberation between humans and the river.
+              </p>
+
+              <p>
+                Technical support provided by <strong>Mayowa Osibodu</strong>, the{" "}
+                <a
+                  href="http://consider.it/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  Consider.it
+                </a>{" "}
+                team, and <strong>Stanislav Hannes</strong>.
+              </p>
+
+              <p>
+                <strong>Contribute to the emergence of the next Avatar:</strong>
+                <br />
+                A new Nature Avatar is being born, delivered by a Regenerative School at the heart
+                of the Brazilian Atlantic Rainforest. They both need your support:
+              </p>
+
+              <div className="flex flex-col items-center space-y-3">
+                <img
+                  src="/qrcode.jpg"
+                  alt="QR code to support next Avatar"
+                  className="w-40 h-40 border border-stone-400 rounded-lg shadow"
+                />
+                <p className="text-center text-stone-600 text-sm">
+                  Scan the QR code or contact us below.
+                </p>
+              </div>
+
+              <p>
+                Contact:{" "}
+                <a
+                  href="mailto:hello@sympoiesis.xyz"
+                  className="text-amber-700 underline hover:text-amber-800"
+                >
+                  hello@sympoiesis.xyz
+                </a>
+              </p>
             </DialogDescription>
+
           </DialogHeader>
         </DialogContent>
       </Dialog>

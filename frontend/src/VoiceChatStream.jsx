@@ -301,8 +301,9 @@ export default function VoiceChatStream() {
   const avatarRippleScale = 1 + avatarVolume * 1.5;
 
   return (
+    // bg-gradient-to-br from-emerald-100 to-stone-100
     <div
-      className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 flex flex-col items-center justify-center p-4"
+      className="relative min-h-screen  flex flex-col items-center justify-center p-4"
       style={{ fontFamily: "'Chakra Petch', sans-serif" }}
     >
 

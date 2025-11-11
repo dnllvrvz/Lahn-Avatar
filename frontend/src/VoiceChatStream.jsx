@@ -326,7 +326,7 @@ export default function VoiceChatStream() {
       </h1>
 
       {/* Subtitle / Instructions */}
-      <p className="text-stone-700 text-center mb-8 max-w-lg drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+      <p className="text-stone-900 text-center mb-8 font-bold max-w-lg drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
         Press the microphone button below to talk to the river. Press again when you’re done speaking — she’ll answer in her own voice.
       </p>
 
@@ -341,7 +341,7 @@ export default function VoiceChatStream() {
           }}
           transition={{ duration: 0.1 }}
         />
-        <div className="relative z-10 mt-20 font-semibold text-stone-700">
+        <div className="relative z-10 mt-20 font-bold text-stone-900">
           {userSpeaking ? "You are speaking…" : "Press mic to speak"}
         </div>
       </div>

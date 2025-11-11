@@ -300,6 +300,33 @@ export default function VoiceChatStream() {
   const userRippleScale = 1 + userVolume * 1.5;
   const avatarRippleScale = 1 + avatarVolume * 1.5;
 
+
+  useEffect(() => {
+    const video = document.querySelector("#bg-video");
+    if (!video) return;
+
+    // Start muted (required for autoplay)
+    video.muted = true;
+    video.volume = 0;
+
+    const fadeIn = () => {
+      video.muted = false;
+      let vol = 0;
+      const fade = setInterval(() => {
+        vol += 0.01;
+        if (vol >= 0.12) { // target volume ~12%
+          vol = 0.12;
+          clearInterval(fade);
+        }
+        video.volume = vol;
+      }, 200);
+    };
+
+    video.addEventListener("canplay", fadeIn);
+    return () => video.removeEventListener("canplay", fadeIn);
+  }, []);
+
+
   return (
     // bg-gradient-to-br from-emerald-100 to-stone-100
     <div
@@ -309,6 +336,7 @@ export default function VoiceChatStream() {
 
     {/* BACKGROUND VIDEO */}
     <video
+      id="bg-video"
       src="/lahn_video_stitched.mp4"
       autoPlay
       muted

@@ -45,6 +45,8 @@ class OpenAIRealtimeClient:
         self.ws_client = ws_client
         self.ws_thread = None
 
+        self.last_language = "en"
+
 
     def append_audio(self, base64_chunk):
         """Forward each base64 audio chunk to OpenAI if connected, else buffer."""
@@ -68,25 +70,71 @@ class OpenAIRealtimeClient:
             print(f"[WARN] append_audio failed: {e}")
 
 
-    def commit_audio_buffer(self):
-        """Tell OpenAI that user input is finished and request a response."""
+    def commit_audio_buffer(self, timeout=15):
+        """
+        Finalizes the current audio buffer, requests a response from OpenAI,
+        and returns both the transcript and detected language (if available).
+        """
+        import json, time
+
+        transcript = ""
+        detected_language = "en"
+
         try:
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
-                # 🔹 Finalize the current audio input buffer
+                # 1️⃣ Tell OpenAI audio input is complete
                 self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
-                # 🔹 Ask OpenAI to generate a response (audio + text)
+                # 2️⃣ Request model response (audio + text)
                 self.ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": self.prompt
+                        "instructions": self.prompt + " Respond in "+ self.last_language
                     }
                 }))
+
+                # 3️⃣ Listen for transcript metadata
+                start = time.time()
+                while time.time() - start < timeout:
+                    try:
+                        msg = self.ws.recv()
+                        if not msg:
+                            continue
+                        data = json.loads(msg)
+
+                        # Transcription event
+                        if data.get("type") in ("input_audio_buffer.committed", "response.output_text.delta"):
+                            if "transcript" in data:
+                                transcript = data["transcript"]
+
+                            if "metadata" in data and "language" in data["metadata"]:
+                                detected_language = data["metadata"]["language"]
+
+                        # Streamed text deltas
+                        elif data.get("type") == "response.output_text.delta":
+                            transcript += data.get("delta", "")
+
+                        elif data.get("type") == "response.completed":
+                            break
+
+                    except Exception as inner_e:
+                        print(f"⚠️ Error while reading realtime message: {inner_e}")
+                        break
+
+                transcript = transcript.strip()
+                print(f"🗣️ Transcript: {transcript}")
+                print(f"🌍 Detected language: {detected_language}")
+                # Remember for next turn
+                self.last_language = detected_language or self.last_language
             else:
                 print("⚠️ No active OpenAI websocket — cannot commit.")
+
         except Exception as e:
             print(f"[WARN] commit_audio_buffer failed: {e}")
+
+        return transcript, detected_language
+
 
 
     def connect_to_openai(self, retries=3):
@@ -533,7 +581,7 @@ class OpenAIRealtimeClient:
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: "+result +" (What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
+                            "instructions": "Function response: "+result +" Respond in "+ self.last_language #(What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")

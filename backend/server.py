@@ -344,7 +344,7 @@ def stream(ws):
             break
 
         if msg == "END":
-            client.commit_audio_buffer()
+            transcript, detected_language = client.commit_audio_buffer()
         else:
             client.append_audio(msg)   # raw base64 chunks
 

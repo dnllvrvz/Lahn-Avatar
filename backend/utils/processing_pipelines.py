@@ -73,9 +73,9 @@ class OpenAIRealtimeClient:
                 decoded = base64.b64decode(base64_chunk)
                 self.audio_buffer.extend(decoded)
 
-            # Optional: let browser know chunk was received
-            if self.ws_client:
-                self.ws_client.send(json.dumps({"status": "audio_chunk_received"}))
+            # # Optional: let browser know chunk was received
+            # if self.ws_client:
+            #     self.ws_client.send(json.dumps({"status": "audio_chunk_received"}))
         except Exception as e:
             print(f"[WARN] append_audio failed: {e}")
 
@@ -451,7 +451,7 @@ class OpenAIRealtimeClient:
                     else:
                         try:
                             # Force bytes, avoid text encoding
-                            self.ws_client.send(audio_chunk, binary=True)
+                            self.ws_client.send(bytes(audio_chunk))
                         except Exception as e:
                             print(f"[WARN] failed to send binary audio: {e}")
                         # Send raw binary frame instead of JSON

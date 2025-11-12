@@ -31,7 +31,7 @@ print("✅ Whisper model loaded.")
 
 # 1) Fetch & normalize your ThingSpeak data
 THINGSPEAK_URL = (
-    "https://api.thingspeak.com/channels/2974588/feeds.json?results=350"
+    "https://api.thingspeak.com/channels/2974588/feeds.json?results=100"
 )
 
 
@@ -147,15 +147,6 @@ class LahnSensorsTool:
                 return 'Technical issue with sensor data analysis. Pls try again later.'
         return result
 
-        # except Exception as e:
-        #     print(f"⚠️ PandasQueryEngine error: {e}")
-        #     print("Retrying once with error context...")
-        #     try:
-        #         modified_query = f"{query}\n\nNote: the previous code failed with this error: {str(e)}. Please correct it."
-        #         return self._engine.query(modified_query).response
-        #     except Exception as e2:
-        #         print(f"❌ Retry failed: {e2}")
-        #         return f"There was an error running this query: {e2}"
 
     def query(self, query_str: str) -> str:
         """
@@ -165,57 +156,6 @@ class LahnSensorsTool:
         return self(query_str)
 
 
-# class NoMemory(BaseMemory):
-#     """
-#     A no-op memory implementation for LlamaIndex v0.12.35.
-#     All methods are implemented but do nothing or return empty.
-#     """
-
-#     @classmethod
-#     def from_defaults(cls, **kwargs: Any) -> "NoMemory":
-#         # Ignoring any kwargs; just return an instance
-#         return cls()
-
-#     def put(self, message: Any) -> None:
-#         # Called when the agent tries to store a message. Do nothing.
-#         return
-
-#     async def aput(self, message: Any) -> None:
-#         # Async version of put. Do nothing.
-#         return
-
-#     def get(self, input=None) -> List[Any]:
-#         # Called when the agent wants to retrieve “relevant” memory.
-#         # Always return an empty list (no history).
-#         return []
-
-#     async def aget(self) -> List[Any]:
-#         # Async version of get. Always return empty.
-#         return []
-
-#     def get_all(self) -> List[Any]:
-#         # Called when the agent wants all memory. Return empty.
-#         return []
-
-#     async def aget_all(self) -> List[Any]:
-#         # Async version. Return empty.
-#         return []
-
-#     def set(self, messages: List[Any]) -> None:
-#         # Replace entire memory store with new messages. We ignore.
-#         return
-
-#     async def aset(self, messages: List[Any]) -> None:
-#         # Async version of set. Do nothing.
-#         return
-
-#     def reset(self) -> None:
-#         # Clear all memory. We have none, so do nothing.
-#         return
-
-#     async def areset(self) -> None:
-#         # Async version of reset. Do nothing.
-#         return
 
 def format_history_as_string(history):
     # print('To convert to string. Input: ', history)

@@ -40,7 +40,8 @@ class OpenAIRealtimeClient:
         self.awaiting_function_response = False
         self.current_response_has_function_call = False
 
-        self.prompt = prompt + '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
+        # self.prompt = prompt #+ '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
+
         self.streaming = streaming
         self.ws_client = ws_client
         self.ws_thread = None
@@ -48,6 +49,11 @@ class OpenAIRealtimeClient:
         # self.last_transcript = ""
         self.last_language = 'en_' #None #"en"
         # self._message_queue = []
+
+    def update_prompt_with_last_user_language(self):
+        index = self.prompt.find('CONTEXT INFORMATION')
+        self.prompt = self.prompt[:index] + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n' + self.prompt[index:]
+
 
 
     def append_audio(self, base64_chunk):
@@ -79,12 +85,14 @@ class OpenAIRealtimeClient:
                 # 🔹 Finalize the current audio input buffer
                 self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
+                self.update_prompt_with_last_user_language()
+
                 # 🔹 Ask OpenAI to generate a response (audio + text)
                 self.ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": self.prompt + "Respond in the language the user most recently used: "+self.last_language
+                        "instructions": self.prompt #+ "Respond in the language the user most recently used: "+self.last_language
                     }
                 }))
             else:
@@ -236,6 +244,8 @@ class OpenAIRealtimeClient:
                 
                 # Wait a bit for server to process the audio
                 time.sleep(0.5)
+
+                # self.update_prompt_with_last_user_language()
                 
                 # Explicitly request a response
                 response_event = {
@@ -551,11 +561,12 @@ class OpenAIRealtimeClient:
 
                 # Send the result back to the model
                 if result is not None:
+                    # self.update_prompt_with_last_user_language()
                     ws.send(json.dumps({
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: "+result +" Respond in "+ self.last_language #(What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
+                            "instructions": "Function response: "+result + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n'#+" Respond in "+ self.last_language #(What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")

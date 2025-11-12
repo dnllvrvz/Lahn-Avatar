@@ -491,6 +491,17 @@ class OpenAIRealtimeClient:
 
                 metadata = data.get('metadata', {}) or {}
                 lang = metadata.get('language') or data.get('language') #or self.last_language
+
+                # 🔹 Optional: automatic detection if missing
+                if lang is None and transcript:
+                    print('Detecting language w langdetect...')
+                    import langdetect
+                    try:
+                        lang = langdetect.detect(transcript)
+                    except:
+                        lang = self.last_language or "en_"
+
+
                 self.last_language = lang
 
                 print(f"🌍 Detected language: {lang}")

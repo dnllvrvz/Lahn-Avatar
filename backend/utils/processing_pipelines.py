@@ -402,7 +402,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": self.prompt #+ "\n For every reponse you give, carry out this language-consistency check: What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.", #"You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": self.prompt 
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -412,6 +412,7 @@ class OpenAIRealtimeClient:
                 "tools": tools
             }
         }
+        #+ "\n For every reponse you give, carry out this language-consistency check: What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.", #"You are a helpful AI assistant. Give very short, direct answers.",
         ws.send(json.dumps(session_update))
 
         # print('\n\nSystem prompt: ', self.prompt)

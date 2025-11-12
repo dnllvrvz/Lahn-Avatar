@@ -45,7 +45,9 @@ class OpenAIRealtimeClient:
         self.ws_client = ws_client
         self.ws_thread = None
 
-        self.last_language = "en"
+        # self.last_transcript = ""
+        self.last_language = None #"en"
+        # self._message_queue = []
 
 
     def append_audio(self, base64_chunk):
@@ -70,70 +72,25 @@ class OpenAIRealtimeClient:
             print(f"[WARN] append_audio failed: {e}")
 
 
-    def commit_audio_buffer(self, timeout=15):
-        """
-        Finalizes the current audio buffer, requests a response from OpenAI,
-        and returns both the transcript and detected language (if available).
-        """
-        import json, time
-
-        transcript = ""
-        detected_language = "en"
-
+    def commit_audio_buffer(self):
+        """Tell OpenAI that user input is finished and request a response."""
         try:
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
-                # 1️⃣ Tell OpenAI audio input is complete
+                # 🔹 Finalize the current audio input buffer
                 self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
-                # 2️⃣ Request model response (audio + text)
+                # 🔹 Ask OpenAI to generate a response (audio + text)
                 self.ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": self.prompt + " Respond in "+ self.last_language
+                        "instructions": self.prompt + "Respond in the language the user most recently used: "+self.last_language
                     }
                 }))
-
-                # 3️⃣ Listen for transcript metadata
-                start = time.time()
-                while time.time() - start < timeout:
-                    try:
-                        msg = self.ws.recv()
-                        if not msg:
-                            continue
-                        data = json.loads(msg)
-
-                        # Transcription event
-                        if data.get("type") in ("input_audio_buffer.committed", "response.output_text.delta"):
-                            if "transcript" in data:
-                                transcript = data["transcript"]
-
-                            if "metadata" in data and "language" in data["metadata"]:
-                                detected_language = data["metadata"]["language"]
-
-                        # Streamed text deltas
-                        elif data.get("type") == "response.output_text.delta":
-                            transcript += data.get("delta", "")
-
-                        elif data.get("type") == "response.completed":
-                            break
-
-                    except Exception as inner_e:
-                        print(f"⚠️ Error while reading realtime message: {inner_e}")
-                        break
-
-                transcript = transcript.strip()
-                print(f"🗣️ Transcript: {transcript}")
-                print(f"🌍 Detected language: {detected_language}")
-                # Remember for next turn
-                self.last_language = detected_language or self.last_language
             else:
                 print("⚠️ No active OpenAI websocket — cannot commit.")
-
         except Exception as e:
             print(f"[WARN] commit_audio_buffer failed: {e}")
-
-        return transcript, detected_language
 
 
 
@@ -436,7 +393,7 @@ class OpenAIRealtimeClient:
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
-                "input_audio_transcription": {"model": "whisper-1"},
+                # "input_audio_transcription": {"model": "whisper-1"},
                 "turn_detection": None,
                 "temperature": 0.7,
                 "tools": tools
@@ -531,6 +488,12 @@ class OpenAIRealtimeClient:
                 transcript = data.get('transcript', '')
                 self.input_transcript = transcript
                 print(f"🎤 Input transcript: {transcript}")
+
+                metadata = data.get('metadata', {}) or {}
+                lang = metadata.get('language') or data.get('language') #or self.last_language
+                self.last_language = lang
+
+                print(f"🌍 Detected language: {lang}")
             
             elif event_type == 'response.audio_transcript.delta':
                 # Output audio transcript delta

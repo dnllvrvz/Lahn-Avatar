@@ -54,6 +54,8 @@ class OpenAIRealtimeClient:
         index = self.prompt.find('CONTEXT INFORMATION')
         self.prompt = self.prompt[:index] + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n' + self.prompt[index:]
 
+        print('Telling model to respond in ', self.last_language)
+
 
 
     def append_audio(self, base64_chunk):
@@ -449,7 +451,7 @@ class OpenAIRealtimeClient:
                     else:
                         try:
                             # Force bytes, avoid text encoding
-                            self.ws_client.send(bytes(audio_chunk))
+                            self.ws_client.send(audio_chunk, binary=True)
                         except Exception as e:
                             print(f"[WARN] failed to send binary audio: {e}")
                         # Send raw binary frame instead of JSON
@@ -566,6 +568,7 @@ class OpenAIRealtimeClient:
                 # Send the result back to the model
                 if result is not None:
                     # self.update_prompt_with_last_user_language()
+                    print('Telling model to respond in ', self.last_language)
                     ws.send(json.dumps({
                         "type": "response.create",
                         "response": {

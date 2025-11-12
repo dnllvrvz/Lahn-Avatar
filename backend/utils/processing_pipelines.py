@@ -40,7 +40,7 @@ class OpenAIRealtimeClient:
         self.awaiting_function_response = False
         self.current_response_has_function_call = False
 
-        # self.prompt = prompt #+ '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
+        self.prompt = prompt #+ '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
 
         self.streaming = streaming
         self.ws_client = ws_client
@@ -395,11 +395,14 @@ class OpenAIRealtimeClient:
         ]
 
 
+
+        # self.update_prompt_with_last_user_language()
+
         session_update = {
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": self.prompt + "\n For every reponse you give, carry out this language-consistency check: What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.", #"You are a helpful AI assistant. Give very short, direct answers.",
+                "instructions": self.prompt #+ "\n For every reponse you give, carry out this language-consistency check: What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.", #"You are a helpful AI assistant. Give very short, direct answers.",
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",

@@ -402,7 +402,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": self.prompt 
+                "instructions": self.prompt, 
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",

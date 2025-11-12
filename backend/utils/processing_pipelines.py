@@ -46,7 +46,7 @@ class OpenAIRealtimeClient:
         self.ws_thread = None
 
         # self.last_transcript = ""
-        self.last_language = None #"en"
+        self.last_language = 'en_' #None #"en"
         # self._message_queue = []
 
 

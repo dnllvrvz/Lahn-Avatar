@@ -333,10 +333,10 @@ def stream(ws):
     index = system_prompt.find('You also have access to sensory data')
     system_prompt_ = system_prompt[:index]
 
-    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt_, streaming=True, ws_client = ws)
+    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, streaming=True, ws_client = ws)
     client.connect_to_openai()
     
-    # gpt-realtime
+    #  gpt-4o-realtime-preview
     # Handle audio sent from frontend
     while True:
         msg = ws.receive()

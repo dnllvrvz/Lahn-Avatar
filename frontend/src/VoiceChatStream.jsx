@@ -40,8 +40,31 @@ export default function VoiceChatStream() {
 
   const [conversation, setConversation] = useState([]);
 
+  const [wsConnected, setWsConnected] = useState(false);
 
 
+
+
+  // Connect once when component mounts or on first use
+  const connectWebSocket = async () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("✅ Already connected");
+      return;
+    }
+
+    wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
+    wsRef.current.binaryType = "arraybuffer";
+    wsRef.current.onmessage = handleWsMessage;
+    
+    wsRef.current.onclose = () => {
+      console.log("🔌 WebSocket closed");
+      setWsConnected(false);
+    };
+    
+    await new Promise((resolve) => (wsRef.current.onopen = resolve));
+    setWsConnected(true);
+    console.log("✅ WS connected");
+  };
 
 
   // ─────────────────────────────────────────────────────────────
@@ -50,12 +73,8 @@ export default function VoiceChatStream() {
   const startRecording = async () => {
     resetAvatarAudio(); // discard any previous queued or paused audio
 
-    wsRef.current = new WebSocket("wss://" + window.location.host + "/api/voice-chat-stream");
-    wsRef.current.binaryType = "arraybuffer";
-
-    wsRef.current.onmessage = handleWsMessage;
-    await new Promise((resolve) => (wsRef.current.onopen = resolve));
-    console.log("✅ WS connected");
+    // Connect if not already connected
+    await connectWebSocket();
 
     const audioCtx = new AudioContext({ sampleRate: 48000 });
     await audioCtx.audioWorklet.addModule("/pcm-processor.js");
@@ -349,6 +368,15 @@ export default function VoiceChatStream() {
 
     video.addEventListener("canplay", fadeIn);
     return () => video.removeEventListener("canplay", fadeIn);
+  }, []);
+
+
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
   }, []);
 
 

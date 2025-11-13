@@ -346,8 +346,8 @@ def stream(ws):
         try:
             data = json.loads(msg)
             if data.get("type") == "END":
-                conversation = data.get("conversation", [])
-                client.conversation_history = conversation
+                # conversation = data.get("conversation", [])
+                # client.conversation_history = conversation
                 client.commit_audio_buffer()
             else:
                 # other control messages

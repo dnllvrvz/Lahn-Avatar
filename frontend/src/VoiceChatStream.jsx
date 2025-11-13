@@ -38,6 +38,9 @@ export default function VoiceChatStream() {
   // Add near other state variables
   const [avatarPaused, setAvatarPaused] = useState(false);
 
+  const [conversation, setConversation] = useState([]);
+
+
 
 
 
@@ -127,7 +130,12 @@ export default function VoiceChatStream() {
   // ─────────────────────────────────────────────────────────────
   const stopRecording = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send("END");
+      wsRef.current.send(JSON.stringify({
+        type: "END",
+        conversation: conversation
+      }));
+      console.log('Conversation: ', conversation);
+
     }
     if (userStreamRef.current) {
       userStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -204,14 +212,31 @@ export default function VoiceChatStream() {
 
 
     // Case 2: Text (JSON) control message
-    try {
-      const msg = JSON.parse(e.data);
-      // console.log("Text message:", msg);
-      if (msg.text) {
-        // handle model text here
+    if (typeof e.data === "string") {
+      try {
+        const msg = JSON.parse(e.data);
+
+        switch (msg.type) {
+          case "input_transcript":
+            // User said this (as detected by Whisper)
+            setConversation((prev) => [...prev, { role: "user", text: msg.text }]);
+            break;
+
+          case "output_transcript":
+            // Model replied with this
+            setConversation((prev) => [...prev, { role: "assistant", text: msg.text }]);
+            break;
+
+          case "status":
+            console.log("Status update:", msg.text);
+            break;
+
+          default:
+            console.log("Unhandled WS text message:", msg);
+        }
+      } catch (err) {
+        console.warn("Non-JSON text message:", e.data);
       }
-    } catch (err) {
-      console.warn("Non-JSON text message:", e.data);
     }
   };
 

@@ -90,13 +90,32 @@ class OpenAIRealtimeClient:
                 self.update_prompt_with_last_user_language()
 
                 # 🔹 Ask OpenAI to generate a response (audio + text)
+                conversation_payload = getattr(self, "conversation_history", [])
+
+                # Format conversation as plain text summary for the model
+                history_text = ""
+                for turn in conversation_payload[-6:]:  # last few turns only
+                    role = turn.get("role", "user")
+                    text = turn.get("text", "")
+                    history_text += f"\n[{role.upper()}]: {text}"
+
+                print('Conversation history: ', history_text)
+
+                prompt_with_context = (
+                    self.prompt
+                    + "\n---\nPrevious conversation context:"
+                    + history_text
+                    + "\n---\nNow respond naturally to the latest input."
+                )
+
                 self.ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": self.prompt #+ "Respond in the language the user most recently used: "+self.last_language
+                        "instructions": prompt_with_context
                     }
                 }))
+
             else:
                 print("⚠️ No active OpenAI websocket — cannot commit.")
         except Exception as e:
@@ -503,6 +522,11 @@ class OpenAIRealtimeClient:
                 # Input audio transcription
                 transcript = data.get('transcript', '')
                 self.input_transcript = transcript
+                if self.ws_client:
+                    self.ws_client.send(json.dumps({
+                        "type": "input_transcript",
+                        "text": transcript
+                    }))
                 print(f"🎤 Input transcript: {transcript}")
 
                 metadata = data.get('metadata', {}) or {}
@@ -532,6 +556,11 @@ class OpenAIRealtimeClient:
                 transcript = data.get('transcript', '')
                 if transcript:
                     self.output_transcript = transcript
+                if self.ws_client:
+                    self.ws_client.send(json.dumps({
+                        "type": "output_transcript",
+                        "text": transcript
+                    }))
                 print(f"💬 Output transcript: {self.output_transcript}")
 
             #wrt function calling

@@ -338,18 +338,24 @@ def stream(ws):
     
     # gpt-realtime
     # Handle audio sent from frontend
-    try:
-        data = json.loads(msg)
-        if data.get("type") == "END":
-            conversation = data.get("conversation", [])
-            client.conversation_history = conversation
-            client.commit_audio_buffer()
-        else:
-            # other control messages
-            pass
-    except json.JSONDecodeError:
-        # raw base64 audio chunks
-        client.append_audio(msg)
+    while True:
+        msg = ws.receive()
+        if msg is None:
+            break
+
+        try:
+            data = json.loads(msg)
+            if data.get("type") == "END":
+                conversation = data.get("conversation", [])
+                client.conversation_history = conversation
+                client.commit_audio_buffer()
+            else:
+                # other control messages
+                pass
+        except json.JSONDecodeError:
+            # raw base64 audio chunks
+            client.append_audio(msg)
+
 
 
 

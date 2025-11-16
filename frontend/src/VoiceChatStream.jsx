@@ -89,13 +89,6 @@ export default function VoiceChatStream() {
     source.connect(analyser);
 
     const updateUserVolume = () => {
-      if (!isRecording) {
-        requestAnimationFrame(updateUserVolume); // keep checking until active
-        // setUserSpeaking(false);
-        // setUserVolume(0);
-        return; // stop updating if not recording
-      }
-
       analyser.getByteFrequencyData(dataArray);
       const rms = Math.sqrt(
         dataArray.reduce((s, v) => s + v * v, 0) / dataArray.length
@@ -103,9 +96,9 @@ export default function VoiceChatStream() {
       const normalized = rms / 128;
       setUserVolume(normalized);
       setUserSpeaking(normalized > 0.05); // threshold ≈ silence floor
+
       requestAnimationFrame(updateUserVolume);
     };
-
 
 
     const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
@@ -301,17 +294,23 @@ export default function VoiceChatStream() {
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
     const loop = () => {
+      if (!avatarAnalyserRef.current) {
+        setAvatarVolume(0);
+        return;
+      }
+
       analyser.getByteFrequencyData(dataArray);
       const rms = Math.sqrt(
         dataArray.reduce((s, v) => s + v * v, 0) / dataArray.length
       );
       setAvatarVolume(rms / 128);
 
-      if (avatarPlayingRef.current) requestAnimationFrame(loop);
-      else setAvatarVolume(0);
+      requestAnimationFrame(loop);
     };
+
     loop();
   };
+
 
   // ─────────────────────────────────────────────────────────────
   // UI
@@ -437,7 +436,7 @@ export default function VoiceChatStream() {
           style={{ zIndex: 0, pointerEvents: "none" }}
           animate={{
             scale: avatarRippleScale,
-            opacity: Math.min(avatarVolume * 2, 0.8),
+            opacity: avatarPlaying ? Math.min(avatarVolume * 2, 0.8) : 0,
           }}
           transition={{ duration: 0.1 }}
         />

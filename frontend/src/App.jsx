@@ -6,6 +6,8 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 
+import "@fontsource/chakra-petch";
+
 export default function LahnAvatarChat() {
   const [refreshPromptState, setRefreshPromptState] = useState("idle");
   const [refreshEmbeddingsState, setRefreshEmbeddingsState] = useState("idle");
@@ -128,7 +130,7 @@ export default function LahnAvatarChat() {
   }, [messages]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-4 flex flex-col items-center">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-4 flex flex-col items-center" style={{ fontFamily: "'Chakra Petch', sans-serif" }}>
       <motion.h1 className="text-3xl font-poetic text-amber-700 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
         Lahn River: Listening to the Ecosystem.
       </motion.h1>

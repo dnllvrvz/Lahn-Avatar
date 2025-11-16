@@ -402,8 +402,8 @@ export default function VoiceChatStream() {
     <div className="fixed inset-0 bg-gradient-to-b from-black/60 via-black/30 to-emerald-900/50 -z-10" />
 
       {/* Page Title */}
-      <h1 className="text-4xl md:text-5xl font-bold text-amber-700 mb-2 text-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
-        Ever heard a river speak?<br />Meet the Lahn — she has a lot to say.
+      <h1 className="text-4xl md:text-5xl font-bold text-white mb-2 text-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
+        Ever heard a river speak?<br />Meet the Lahn and her Avatar.
       </h1>
 
       {/* Subtitle / Instructions */}

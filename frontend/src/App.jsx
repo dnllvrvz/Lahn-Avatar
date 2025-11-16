@@ -133,7 +133,7 @@ export default function LahnAvatarChat() {
         Lahn River: Listening to the Ecosystem.
       </motion.h1>
       <motion.h3 className="text-xl font-poetic text-amber-700 italic mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
-        Ever hear a river speak? Meet the Lahn, it has a lot to say.
+        Ever heard a river speak? Meet the Lahn and her Avatar.
       </motion.h3>
 
       <div className="mb-6 text-stone-900 text-center">

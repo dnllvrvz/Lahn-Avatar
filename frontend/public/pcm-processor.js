@@ -24,10 +24,10 @@ class PCMProcessor extends AudioWorkletProcessor {
       samples.reduce((sum, val) => sum + val * val, 0) / samples.length
     );
     
-    // Log very quiet audio
-    if (rms < 0.001) {
-      console.warn(`[PCMProcessor] Very quiet input: RMS=${rms.toFixed(6)}`);
-    }
+    // // Log very quiet audio
+    // if (rms < 0.001) {
+    //   console.warn(`[PCMProcessor] Very quiet input: RMS=${rms.toFixed(6)}`);
+    // }
     
     this.buffer.push(...samples);
 
@@ -41,7 +41,7 @@ class PCMProcessor extends AudioWorkletProcessor {
       );
       
       this.chunkCount++;
-      console.log(`[PCMProcessor] Chunk #${this.chunkCount}: ${chunkArray.length} samples, RMS=${chunkRms.toFixed(4)}`);
+      // console.log(`[PCMProcessor] Chunk #${this.chunkCount}: ${chunkArray.length} samples, RMS=${chunkRms.toFixed(4)}`);
       
       this.port.postMessage(chunkArray);
     }

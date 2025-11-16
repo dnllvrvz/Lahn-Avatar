@@ -42,6 +42,8 @@ export default function VoiceChatStream() {
 
   const [wsConnected, setWsConnected] = useState(false);
 
+  const recordingAudioCtxRef = useRef(null);
+
 
 
 
@@ -72,6 +74,13 @@ export default function VoiceChatStream() {
   // ─────────────────────────────────────────────────────────────
   const startRecording = async () => {
     resetAvatarAudio(); // discard any previous queued or paused audio
+
+    // Clean up any existing recording context
+    if (recordingAudioCtxRef.current) {
+      try {
+        recordingAudioCtxRef.current.close();
+      } catch {}
+    }
 
     // Connect if not already connected
     await connectWebSocket();
@@ -156,6 +165,13 @@ export default function VoiceChatStream() {
     setUserSpeaking(false);
     setUserVolume(0);
 
+    if (recordingAudioCtxRef.current) {
+      try {
+        recordingAudioCtxRef.current.close();
+      } catch {}
+      recordingAudioCtxRef.current = null;
+    }
+
     setIsRecording(false);
   };
 
@@ -168,6 +184,7 @@ export default function VoiceChatStream() {
       } catch {}
     }
     avatarAudioRef.current = null;
+    avatarAnalyserRef.current = null;
     nextPlayTimeRef.current = 0;
     avatarPlayingRef.current = false;
     setAvatarPlaying(false);
@@ -321,53 +338,33 @@ export default function VoiceChatStream() {
 
   useEffect(() => {
     const video = document.getElementById("bg-video");
-
     if (!video) return;
 
-    // Required for autoplay policies
     video.muted = true;
     video.volume = 0;
 
-    const startFadeIn = () => {
-      let vol = 0;
-      const fade = setInterval(() => {
-        vol += 0.01;
-        // Cap at ~12% volume
-        video.volume = Math.min(vol, 0.12);
-
-        // Stop fading if we hit target volume or video paused/stopped
-        if (vol >= 0.12 || video.paused) {
-          clearInterval(fade);
-        }
-      }, 200);
-    };
-
-    const tryPlay = () => {
-      video
-        .play()
-        .then(() => {
-          // Only fade in after playback is actually running
-          startFadeIn();
-        })
-        .catch(() => {
-          console.warn("⛔ Autoplay blocked, waiting for click…");
-
-          document.addEventListener(
-            "click",
-            () => {
-              console.log("👆 User interacted → retrying autoplay");
-              video
-                .play()
-                .then(() => {
-                  startFadeIn();
-                })
-                .catch((err) => {
-                  console.error("Still blocked:", err);
-                });
-            },
-            { once: true }
-          );
-        });
+    const tryPlay = async () => {
+      try {
+        await video.play();
+        // Fade in volume
+        let vol = 0;
+        const fade = setInterval(() => {
+          vol += 0.01;
+          video.volume = Math.min(vol, 0.12);
+          if (vol >= 0.12) clearInterval(fade);
+        }, 200);
+      } catch (err) {
+        console.warn("⛔ Autoplay blocked, waiting for click…");
+        const handleClick = async () => {
+          try {
+            await video.play();
+            console.log("👆 User interacted → playback started");
+          } catch (e) {
+            console.error("Still blocked:", e);
+          }
+        };
+        document.addEventListener("click", handleClick, { once: true });
+      }
     };
 
     tryPlay();

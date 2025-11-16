@@ -196,6 +196,18 @@ export default function VoiceChatStream() {
         nextPlayTimeRef.current = audioCtx.currentTime; // start from "now"
       }
 
+      // ⬇️ Ensure analyser exists BEFORE starting volume loop
+      if (!avatarAnalyserRef.current) {
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        avatarAnalyserRef.current = analyser;
+
+        // NOW start the volume polling loop
+        updateAvatarVolume();
+      }
+
+
+
       const pcm16 = new Int16Array(arrayBuffer);
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
@@ -204,7 +216,9 @@ export default function VoiceChatStream() {
       buffer.copyToChannel(float32, 0);
       const src = audioCtx.createBufferSource();
       src.buffer = buffer;
-      src.connect(audioCtx.destination);
+      src.connect(avatarAnalyserRef.current);
+      avatarAnalyserRef.current.connect(audioCtx.destination);
+
 
       // schedule chunk to start sequentially
       const startAt = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
@@ -260,45 +274,6 @@ export default function VoiceChatStream() {
   };
 
 
-  // Initialize WebAudio node graph
-  const initAvatarAudio = () => {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const dest = ctx.createBufferSource();
-
-    avatarAudioRef.current = ctx;
-    avatarPlaying && ctx.resume();
-
-    // analyser for ripple
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    avatarAnalyserRef.current = analyser;
-
-    updateAvatarVolume();
-  };
-
-  // Feed PCM blocks into audio context
-  const feedPCMToAvatar = (pcmString) => {
-    const ctx = avatarAudioRef.current;
-    if (!ctx) return;
-
-    const pcmArray = new Int16Array(pcmString.length / 2);
-    for (let i = 0; i < pcmArray.length; i++) {
-      pcmArray[i] = pcmString.charCodeAt(i * 2) | (pcmString.charCodeAt(i * 2 + 1) << 8);
-    }
-
-    const buffer = ctx.createBuffer(1, pcmArray.length, 24000);
-    buffer.getChannelData(0).set(pcmArray.map((v) => v / 32768));
-
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    src.connect(avatarAnalyserRef.current);
-    avatarAnalyserRef.current.connect(ctx.destination);
-
-    src.start();
-    setAvatarPlaying(true);
-  };
-
-  // Add this new function after feedPCMToAvatar()
   const toggleAvatarPlayback = () => {
     if (!avatarAudioRef.current) return;
     const ctx = avatarAudioRef.current;
@@ -346,38 +321,59 @@ export default function VoiceChatStream() {
 
 
   useEffect(() => {
-    const video = document.querySelector("#bg-video");
+    const video = document.getElementById("bg-video") as HTMLVideoElement | null;
     if (!video) return;
 
-    // Start muted (required for autoplay)
+    // Required for autoplay policies
     video.muted = true;
     video.volume = 0;
 
-    const fadeIn = () => {
-      video.muted = false;
+    const startFadeIn = () => {
       let vol = 0;
       const fade = setInterval(() => {
         vol += 0.01;
-        if (vol >= 0.12) { // target volume ~12%
-          vol = 0.12;
+        // Cap at ~12% volume
+        video.volume = Math.min(vol, 0.12);
+
+        // Stop fading if we hit target volume or video paused/stopped
+        if (vol >= 0.12 || video.paused) {
           clearInterval(fade);
         }
-        video.volume = vol;
       }, 200);
     };
 
-    video.addEventListener("canplay", fadeIn);
-    return () => video.removeEventListener("canplay", fadeIn);
-  }, []);
+    const tryPlay = () => {
+      video
+        .play()
+        .then(() => {
+          // Only fade in after playback is actually running
+          startFadeIn();
+        })
+        .catch(() => {
+          console.warn("⛔ Autoplay blocked, waiting for click…");
 
-
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+          document.addEventListener(
+            "click",
+            () => {
+              console.log("👆 User interacted → retrying autoplay");
+              video
+                .play()
+                .then(() => {
+                  startFadeIn();
+                })
+                .catch((err) => {
+                  console.error("Still blocked:", err);
+                });
+            },
+            { once: true }
+          );
+        });
     };
+
+    tryPlay();
   }, []);
+
+
 
 
   return (
@@ -440,7 +436,7 @@ export default function VoiceChatStream() {
           style={{ zIndex: 0, pointerEvents: "none" }}
           animate={{
             scale: avatarRippleScale,
-            opacity: avatarPlaying ? 0.7 : 0,
+            opacity: Math.min(avatarVolume * 2, 0.8),
           }}
           transition={{ duration: 0.1 }}
         />

@@ -321,7 +321,8 @@ export default function VoiceChatStream() {
 
 
   useEffect(() => {
-    const video = document.getElementById("bg-video") as HTMLVideoElement | null;
+    const video = document.getElementById("bg-video");
+
     if (!video) return;
 
     // Required for autoplay policies

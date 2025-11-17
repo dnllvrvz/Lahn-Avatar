@@ -190,54 +190,62 @@ def experience_upload():
     print("Experience upload received.")
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
 
-    os.makedirs(UPLOAD_DIR+'/text', exist_ok=True)
-    # Save the text message (if any)
+    os.makedirs(f"{UPLOAD_DIR}/text", exist_ok=True)
+
+    # ---------- Save TEXT immediately ----------
     text = request.form.get("text", "")
     if text.strip():
-        with open(os.path.join(UPLOAD_DIR+'/text', f"{timestamp}_message.txt"), "w", encoding="utf-8") as f:
+        with open(f"{UPLOAD_DIR}/text/{timestamp}_message.txt", "w") as f:
             f.write(text.strip())
 
-    uploaded_files = request.files.getlist('files')
-
+    # ---------- Save FILES (cheap, fast) ----------
+    uploaded_files = request.files.getlist("files")
     saved_paths = []
+
     for f in uploaded_files:
-        # skip empty inputs
-        if not f or f.filename == '':
+        if not f or not f.filename:
             continue
 
-        # 3) Sanitize the filename
         filename = secure_filename(f.filename)
-
-        # 4) Build the absolute path and save
         dest = os.path.join(UPLOAD_DIR, filename)
         f.save(dest)
-
         saved_paths.append(dest)
 
+    # ---------- SAVE AUDIO but DO NOT TRANSCRIBE YET ----------
+    audio_path = None
 
-    # Save and transcribe the uploaded audio file
     if "audio" in request.files:
         audio_file = request.files["audio"]
         if audio_file and audio_file.filename:
             safe_name = secure_filename(audio_file.filename)
-            file_ext = os.path.splitext(safe_name)[1]
-            audio_path = os.path.join(UPLOAD_DIR, f"{timestamp}_audio{file_ext}")
-            audio_file.save(audio_path)
+            ext = os.path.splitext(safe_name)[1]
 
-            try:
+            audio_path = os.path.join(UPLOAD_DIR, f"{timestamp}_audio{ext}")
+            audio_file.save(audio_path)
+            print("🎤 Audio saved, transcription deferred.")
+
+    # ---------- FIRE BACKGROUND JOB ----------
+    def background_job():
+        try:
+            if audio_path:
                 transcript = transcribe_audio(audio_path)
-                with open(os.path.join(UPLOAD_DIR+'/text', f"{timestamp}_transcript.txt"), "w", encoding="utf-8") as f:
+                with open(f"{UPLOAD_DIR}/text/{timestamp}_transcript.txt", "w") as f:
                     f.write(transcript.strip())
                 print("📝 Transcription saved.")
-            except Exception as e:
-                print("❌ Failed to transcribe:", e)
-                return jsonify({"status": "error", "message": "Audio saved, but transcription failed."}), 500
-    print('Upload done...')
 
-    refresh_embeddings_thread = threading.Thread(target=refresh_embeddings)
-    print('Refreshing embeddings...')
-    refresh_embeddings_thread.start()
-    return jsonify({"status": "success", "message": "Experience saved."})
+            refresh_embeddings()
+            print("🔄 Embeddings refreshed.")
+        except Exception as e:
+            print("❌ Background job failed:", e)
+
+    threading.Thread(target=background_job, daemon=True).start()
+
+    # ---------- RETURN IMMEDIATELY ----------
+    return jsonify({
+        "status": "success",
+        "message": "Experience saved. Processing in background."
+    })
+
 
 
 import subprocess

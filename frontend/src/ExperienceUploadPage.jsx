@@ -1,26 +1,26 @@
 import { Link } from 'react-router-dom';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { Loader2 } from "lucide-react";   // 🆕 spinner icon
 
 export default function ExperienceUploadPage() {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
+  const [processing, setProcessing] = useState(false);     // 🆕
+  const [submitted, setSubmitted] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [files, setFiles] = useState([null]);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const canvasRef = useRef(null);
   const animationIdRef = useRef(null);
   const streamRef = useRef(null);
   const analyserRef = useRef(null);
-  const [files, setFiles] = useState([null]);
-
-
-  const handleTextChange = (e) => setText(e.target.value);
 
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -74,152 +74,171 @@ export default function ExperienceUploadPage() {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#4b5563'; // stone-700
+      ctx.strokeStyle = '#4b5563';
       ctx.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
       let x = 0;
+
       for (let i = 0; i < bufferLength; i++) {
         const v = dataArray[i] / 128.0;
         const y = (v * canvas.height) / 2;
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
         x += sliceWidth;
       }
-      ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
     };
 
     draw();
   };
 
-  const stopVisualizer = () => {
-    cancelAnimationFrame(animationIdRef.current);
-  };
-
+  const stopVisualizer = () => cancelAnimationFrame(animationIdRef.current);
 
   const handleSubmit = async () => {
+    if (processing) return;          // 🆕 Prevent double click
+    setProcessing(true);
+
     const formData = new FormData();
     formData.append('text', text);
-    if (audioBlob) {
-      formData.append('audio', audioBlob, 'recording.webm');
-    }
+    if (audioBlob) formData.append('audio', audioBlob, 'recording.webm');
+    files.forEach(f => f && formData.append('files', f, f.name));
 
-    files.forEach(f => {
-      if (f) formData.append('files', f, f.name);
-    });
-
-    const response = await fetch('/api/experience-upload', {
+    const res = await fetch('/api/experience-upload', {
       method: 'POST',
-      body: formData,
+      body: formData
     });
 
-    if (response.ok) {
+    if (res.ok) {
       setSubmitted(true);
     } else {
-      alert('There was a problem uploading your experience.');
+      alert("There was a problem uploading your experience.");
     }
+
+    setProcessing(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-6 flex flex-col items-center">
-      <Link
-        to="/chat"
-        className="text-amber-700 underline text-sm mb-4 hover:text-amber-900 self-start max-w-2xl"
+    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-8 sm:p-12 flex flex-col items-center">
+
+      <Link to="/chat"
+        className="text-amber-700 underline text-sm mb-6 hover:text-amber-900 self-start max-w-2xl"
       >
-        🌊 Return to the River Chat
+        ◀ Return to the River Chat
       </Link>
 
-      <Card className="w-full max-w-2xl bg-white/90 shadow-xl rounded-2xl">
-        <CardContent className="p-6">
-          <h1 className="text-2xl font-semibold mb-4 text-stone-800">
-            🌊 Do you have a personal story about the Lahn river? Share it here anonymously.
+      <Card className={`
+        w-full max-w-2xl shadow-xl rounded-2xl transition-all duration-300
+        ${processing ? "opacity-50 pointer-events-none" : "opacity-100"}
+      `}>
+        <CardContent className="p-8">
+
+          <h1 className="text-3xl font-semibold mb-4 text-stone-800 leading-snug">
+            🌊 Share Your Experience With the Lahn
           </h1>
-          <ul className="mb-4 text-sm text-stone-600 list-disc pl-6">
-            <li>Share a story or moment you’ll never forget that happened near the Lahn.</li>
-            <li>Describe a time the river made you feel something.</li>
-            <li>What does the Lahn mean to you?</li>
-          </ul>
+
+          <p className="text-stone-600 mb-6">
+            Your message becomes part of the river’s collective memory.
+            You may submit text, a voice recording, and/or upload files.
+          </p>
 
           {!submitted ? (
             <>
-              <div className="mb-4">
-                <Label htmlFor="experience-text" className="text-stone-700">
-                  Your Message
-                </Label>
-                <Textarea
-                  id="experience-text"
-                  placeholder="Type your story or message here..."
-                  value={text}
-                  onChange={handleTextChange}
-                  className="bg-white text-stone-800 border-stone-300"
-                />
-              </div>
+              <Label className="font-medium text-stone-700">Your Message</Label>
+              <Textarea
+                placeholder="Tell your story…"
+                value={text}
+                onChange={e => setText(e.target.value)}
+                className="bg-white text-stone-900 border-stone-300 mb-6 min-h-[130px]"
+              />
 
-              <div className="mb-4">
-                <Label className="text-stone-700">Or record your voice</Label>
-                <div className="flex items-center gap-4 mb-2">
+              <div className="mb-6">
+                <Label className="font-medium text-stone-700">Or Record Your Voice</Label>
+                <div className="flex items-center gap-4 mt-2">
                   <Button
                     onClick={recording ? stopRecording : startRecording}
-                    className={`px-4 py-2 rounded-full text-white font-poetic ${
-                      recording ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
-                    }`}
+                    className={`
+                      px-5 rounded-full text-white font-medium
+                      ${recording ? "bg-red-600" : "bg-amber-600"}
+                    `}
                   >
-                    {recording ? 'Stop Recording' : 'Record'}
+                    {recording ? "⏹ Stop Recording" : "🎤 Record"}
                   </Button>
+
                   {audioUrl && (
-                    <audio controls className="mt-2">
+                    <audio controls className="ml-2">
                       <source src={audioUrl} type="audio/webm" />
                     </audio>
                   )}
                 </div>
-                <canvas ref={canvasRef} width="500" height="60" className="rounded bg-stone-200" />
+
+                <canvas
+                  ref={canvasRef}
+                  width="500"
+                  height="60"
+                  className="rounded bg-stone-200 mt-3 shadow-inner"
+                />
               </div>
 
               {files.map((f, idx) => (
-              <div key={idx} className="mb-4">
-                <Label htmlFor={`experience-file-${idx}`} className="text-stone-700">
-                  Upload File #{idx + 1}
-                </Label>
-                <input
-                  id={`experience-file-${idx}`}
-                  type="file"
-                  onChange={e => {
-                    const newFiles = [...files];
-                    newFiles[idx] = e.target.files[0];
-                    setFiles(newFiles);
-                  }}
-                  className="block w-full text-stone-800 border border-stone-300 rounded p-2 file:bg-stone-200 file:px-3 file:py-1 file:rounded"
-                />
-              </div>
-            ))}
+                <div key={idx} className="mb-4">
+                  <Label className="text-stone-700">
+                    Upload File #{idx + 1}
+                  </Label>
+                  <input
+                    type="file"
+                    onChange={e => {
+                      const newFiles = [...files];
+                      newFiles[idx] = e.target.files[0];
+                      setFiles(newFiles);
+                    }}
+                    className="block w-full text-stone-800 border border-stone-300 rounded p-2 file:bg-stone-200"
+                  />
+                </div>
+              ))}
 
-            <Button
-              type="button"
-              onClick={() => setFiles([...files, null])}
-              className="block w-full mb-6 bg-stone-100 text-stone-800 hover:bg-stone-200"
+              <Button
+                variant="outline"
+                className="w-full mb-6 border-stone-400 hover:bg-stone-200"
+                onClick={() => setFiles([...files, null])}
               >
-              Add another file
-            </Button>
-
+                ➕ Add Another File
+              </Button>
 
               <Button
                 onClick={handleSubmit}
-                className="bg-amber-600 text-white hover:bg-amber-700"
+                disabled={processing}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-3 rounded-xl"
               >
-                Submit Experience
+                {processing ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={19} />
+                    Processing…
+                  </span>
+                ) : (
+                  "Submit Experience"
+                )}
               </Button>
+
             </>
           ) : (
-            <p className="text-green-700 font-semibold">
-              🌱 Thank you for sharing your experience with the Lahn 💚
+            <p className="text-green-700 text-lg font-semibold text-center py-6">
+              🌱 Thank you — your story now flows with the river 💚
             </p>
           )}
         </CardContent>
       </Card>
+
+      {/* 🆕 Floating Processing Ribbon */}
+      {processing && (
+        <div className="
+          fixed bottom-6 px-6 py-3 rounded-full shadow-xl
+          bg-emerald-700 text-white font-medium
+          animate-pulse
+        ">
+          ⏳ Upload received — processing in the background…
+        </div>
+      )}
     </div>
   );
 }

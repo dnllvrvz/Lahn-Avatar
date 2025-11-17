@@ -392,17 +392,21 @@ def build_index():
     # cmd = f"shopt -s extglob; rm -rf data/!(uploaded_experiences)"
     # subprocess.run(cmd, shell=True) #
 
-    subprocess.run(
-        "find data -mindepth 1 -not -name 'uploaded_experiences' -exec rm -rf {} +",
-        shell=True,
-        check=True
-    )
+    # subprocess.run(
+    #     "find data -mindepth 1 -not -name 'uploaded_experiences' -exec rm -rf {} +",
+    #     shell=True,
+    #     check=True
+    # )
 
 
-    print('Just cleared data/ . Contents: ', os.listdir('data'))
+    # print('Just cleared data/ . Contents: ', os.listdir('data'))
+    print('Contents of data/ :')
+    for root, dirs, files in os.walk("data"):
+        for name in files:
+            print(os.path.join(root, name))
 
 
-    print('Refreshing from Google Drive...')
+    print('\nRefreshing from Google Drive...')
     download_drive_folder(DRIVE_FOLDER_ID, DATA_DIR)
     convert_docx_to_txt_and_cleanup(DATA_DIR)
 

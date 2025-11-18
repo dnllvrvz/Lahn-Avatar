@@ -87,7 +87,7 @@ class OpenAIRealtimeClient:
                 # 🔹 Finalize the current audio input buffer
                 self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
 
-                self.update_prompt_with_last_user_language()
+                # self.update_prompt_with_last_user_language()
 
                 # 🔹 Ask OpenAI to generate a response (audio + text)
                 self.ws.send(json.dumps({

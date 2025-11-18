@@ -403,7 +403,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
-                "instructions": self.prompt, 
+                "instructions": self.prompt  + "\n\nCRITICAL LANGUAGE RULE - MUST FOLLOW: You MUST respond in the EXACT same language the user speaks to you in. | User speaks English → You respond in English | User speaks German → You respond in German | User speaks Portuguese → You respond in Portuguese | NEVER switch languages unless the user switches first", #IMPORTANT: Always respond in the same language the user speaks to you.
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -510,26 +510,26 @@ class OpenAIRealtimeClient:
                 print(f"🎤 Input transcript: {transcript}")
 
                 # Debug: Print the entire event to see what Whisper returns
-                print(f"🔍 Full transcription event data: {json.dumps(data, indent=2)}")
+                # print(f"🔍 Full transcription event data: {json.dumps(data, indent=2)}")
 
-                metadata = data.get('metadata', {}) or {}
-                lang = metadata.get('language') or data.get('language') #or self.last_language
+                # metadata = data.get('metadata', {}) or {}
+                # lang = metadata.get('language') or data.get('language') #or self.last_language
 
-                print(f"🔍 metadata: {metadata}")
-                print(f"🔍 language from metadata: {metadata.get('language')}")
-                print(f"🔍 language from data: {data.get('language')}")
-                print(f"🔍 Final lang value: {lang}")
+                # print(f"🔍 metadata: {metadata}")
+                # print(f"🔍 language from metadata: {metadata.get('language')}")
+                # print(f"🔍 language from data: {data.get('language')}")
+                # print(f"🔍 Final lang value: {lang}")
                 
-                if lang:
-                    self.last_language = lang
-                    print(f"🌍 Whisper detected language: {lang}")
-                else:
-                    print(f"⚠️ Whisper returned NULL for language, keeping previous: {self.last_language}")
-                    # Don't run langdetect on short phrases - it's unreliable
-                    if len(transcript.split()) < 3:
-                        print(f"⚠️ Transcript too short for reliable detection, keeping: {self.last_language}")
+                # if lang:
+                #     self.last_language = lang
+                #     print(f"🌍 Whisper detected language: {lang}")
+                # else:
+                #     print(f"⚠️ Whisper returned NULL for language, keeping previous: {self.last_language}")
+                #     # Don't run langdetect on short phrases - it's unreliable
+                #     if len(transcript.split()) < 3:
+                #         print(f"⚠️ Transcript too short for reliable detection, keeping: {self.last_language}")
                     # else:
-                        
+
                         # # Only use langdetect for longer phrases
                         # try:
                         #     import langdetect

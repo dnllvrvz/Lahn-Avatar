@@ -509,22 +509,49 @@ class OpenAIRealtimeClient:
                     }))
                 print(f"🎤 Input transcript: {transcript}")
 
+                # Debug: Print the entire event to see what Whisper returns
+                print(f"🔍 Full transcription event data: {json.dumps(data, indent=2)}")
+
                 metadata = data.get('metadata', {}) or {}
                 lang = metadata.get('language') or data.get('language') #or self.last_language
 
-                # 🔹 Optional: automatic detection if missing
-                if lang is None and transcript:
-                    print('Detecting language w langdetect...')
-                    import langdetect
-                    try:
-                        lang = langdetect.detect(transcript)
-                    except:
-                        lang = self.last_language or "en_"
+                print(f"🔍 metadata: {metadata}")
+                print(f"🔍 language from metadata: {metadata.get('language')}")
+                print(f"🔍 language from data: {data.get('language')}")
+                print(f"🔍 Final lang value: {lang}")
+                
+                if lang:
+                    self.last_language = lang
+                    print(f"🌍 Whisper detected language: {lang}")
+                else:
+                    print(f"⚠️ Whisper returned NULL for language, keeping previous: {self.last_language}")
+                    # Don't run langdetect on short phrases - it's unreliable
+                    if len(transcript.split()) < 3:
+                        print(f"⚠️ Transcript too short for reliable detection, keeping: {self.last_language}")
+                    # else:
+                        
+                        # # Only use langdetect for longer phrases
+                        # try:
+                        #     import langdetect
+                        #     detected = langdetect.detect(transcript)
+                        #     print(f"📝 langdetect says: {detected} (using as fallback)")
+                        #     self.last_language = detected
+                        # except:
+                        #     print(f"❌ langdetect failed, keeping: {self.last_language}")
+
+                # # 🔹 Optional: automatic detection if missing
+                # if lang is None and transcript:
+                #     print('Detecting language w langdetect...')
+                #     import langdetect
+                #     try:
+                #         lang = langdetect.detect(transcript)
+                #     except:
+                #         lang = self.last_language or "en_"
 
 
-                self.last_language = lang
+                # self.last_language = lang
 
-                print(f"🌍 Detected language: {lang}")
+                # print(f"🌍 Detected language: {lang}")
             
             elif event_type == 'response.audio_transcript.delta':
                 # Output audio transcript delta
@@ -577,12 +604,12 @@ class OpenAIRealtimeClient:
                 # Send the result back to the model
                 if result is not None:
                     # self.update_prompt_with_last_user_language()
-                    print('Telling model to respond in ', self.last_language)
+                    # print('Telling model to respond in ', self.last_language)
                     ws.send(json.dumps({
                         "type": "response.create",
                         "response": {
                             "modalities": ["audio", "text"],
-                            "instructions": "Function response: "+result + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n'#+" Respond in "+ self.last_language #(What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)"
+                            "instructions": "Function response: "+result + '\nYOU MUST RESPOND IN THE SAME LANGUAGE AS THE USER. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n'#+" Respond in "+ self.last_language #(What language was the user's last message to you in? Respond in precisely the same language. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc)" ' + self.last_language + '.
                         }
                     }))
                     print(f"📤 Sent function call response instructions for {name}")

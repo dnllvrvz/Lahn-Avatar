@@ -77,7 +77,8 @@ class OpenAIRealtimeClient:
                 self.audio_buffer.extend(decoded)
 
                 # 🔊 DEBUG: Write incremental audio dump
-                with open("input_debug.raw", "ab") as f:
+                print("Writing debug audio...")
+                with open("/home/gm2629/input_debug.raw", "ab") as f:
                     f.write(decoded)
 
 

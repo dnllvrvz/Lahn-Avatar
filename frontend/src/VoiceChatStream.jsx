@@ -135,12 +135,12 @@ export default function VoiceChatStream() {
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
 
-      if (wsRef.current.readyState === WebSocket.OPEN)
-        wsRef.current.send(pcm16.buffer);
+      // if (wsRef.current.readyState === WebSocket.OPEN)
+      //   wsRef.current.send(pcm16.buffer);
 
       // Base64 encode and send to backend
-      // const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-      // if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
+      const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
     };
 
     source.connect(worklet);

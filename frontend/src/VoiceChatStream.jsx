@@ -401,7 +401,7 @@ export default function VoiceChatStream() {
 
       {/* Subtitle / Instructions */}
       <p className="text-white text-center mb-8 font-bold text-lg max-w-2xl drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
-        Press the microphone button below to talk to the river. Press again when you’re done speaking — she’ll answer in her own voice.
+        Press the microphone button below to talk to the avatar. Press again when you’re done speaking — she’ll answer in her own voice.
       </p>
 
       {/* USER RIPPLE */}
@@ -416,7 +416,7 @@ export default function VoiceChatStream() {
           transition={{ duration: 0.1 }}
         />
         <div className="relative z-10 mt-20 text-lg font-bold text-white">
-          {userSpeaking ? "You are speaking…" : "Press mic to speak"}
+          {!avatarPlaying && (userSpeaking ? "You are speaking…" : "Press mic to speak")}
         </div>
       </div>
 
@@ -429,18 +429,18 @@ export default function VoiceChatStream() {
       {/* AVATAR RIPPLE */}
       <div className="mb-8 flex flex-col items-center relative">
         <motion.div
-          className="w-48 h-48 rounded-full bg-cyan-300 absolute"
+          className="w-32 h-32 rounded-full bg-cyan-300 absolute"
           style={{ zIndex: 0, pointerEvents: "none" }}
           animate={{
             scale: avatarRippleScale,
-            opacity: avatarPlaying ? Math.min(avatarVolume * 2, 0.8) : 0,
+            opacity: avatarPlaying ? 0.6 : 0,
           }}
           transition={{ duration: 0.1 }}
         />
       </div>
 
       {avatarPlaying || avatarPaused ? (
-        <div className="relative z-10 flex justify-center mt-28">
+        <div className="relative z-40 flex justify-center mt-28">
           <Button onClick={toggleAvatarPlayback}>
             {avatarPaused ? "▶ Resume Avatar" : "⏸ Pause Avatar"}
           </Button>
@@ -449,13 +449,13 @@ export default function VoiceChatStream() {
 
 
       {/* MIC BUTTON */}
-      <div className="mt-6">
+      <div className="mt-6 relative z-50">
         {!isRecording ? (
           <Button
             onClick={startRecording}
             className="bg-amber-600 text-white rounded-full px-6 py-2"
           >
-            🎤 Start Speaking
+            🎤 Press to Talk
           </Button>
         ) : (
           <Button

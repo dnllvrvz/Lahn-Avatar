@@ -61,14 +61,7 @@ class OpenAIRealtimeClient:
 
     def append_audio(self, base64_chunk):
         """Forward each base64 audio chunk to OpenAI if connected, else buffer."""
-
-        decoded = base64.b64decode(base64_chunk)
-        self.audio_buffer.extend(decoded)
-
-        # 🔊 DEBUG: Write incremental audio dump
-        with open("input_debug.raw", "ab") as f:
-            f.write(decoded)
-
+        
 
         try:
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
@@ -82,6 +75,11 @@ class OpenAIRealtimeClient:
                 import base64
                 decoded = base64.b64decode(base64_chunk)
                 self.audio_buffer.extend(decoded)
+
+                # 🔊 DEBUG: Write incremental audio dump
+                with open("input_debug.raw", "ab") as f:
+                    f.write(decoded)
+
 
             # # Optional: let browser know chunk was received
             # if self.ws_client:

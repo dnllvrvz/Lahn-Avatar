@@ -32,7 +32,7 @@ class PCMProcessor extends AudioWorkletProcessor {
     // }
     
     this.buffer.push(...samples);
-    console.log("BUFFER LEN", this.buffer.length);
+    // console.log("BUFFER LEN", this.buffer.length);
 
 
     while (this.buffer.length >= this.chunkSamples) {

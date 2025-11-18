@@ -71,19 +71,21 @@ class OpenAIRealtimeClient:
                     "audio": base64_chunk
                 }))
 
+                import base64
+                decoded = base64.b64decode(base64_chunk)
+
                 import numpy as np
                 arr = np.frombuffer(decoded, dtype=np.int16)
                 peak = int(np.max(np.abs(arr))) if arr.size else 0
                 rms = float(np.sqrt(np.mean(arr.astype(np.float32)**2))) if arr.size else 0.0
                 print(f"[AUDIO DEBUG] chunk bytes={len(decoded)}, peak={peak}, rms={rms:.2f}")
 
-                # import base64
-                # decoded = base64.b64decode(base64_chunk)
+                
                 # self.audio_buffer.extend(decoded)
-                # # 🔊 DEBUG: Write incremental audio dump
+                # 🔊 DEBUG: Write incremental audio dump
                 # print("Writing debug audio...")
-                # with open("/home/gm2629/input_debug.raw", "ab") as f:
-                #     f.write(decoded)
+                with open("/home/gm2629/input_debug.raw", "ab") as f:
+                    f.write(decoded)
 
 
             else:

@@ -70,16 +70,21 @@ class OpenAIRealtimeClient:
                     "type": "input_audio_buffer.append",
                     "audio": base64_chunk
                 }))
+
+                import base64
+                decoded = base64.b64decode(base64_chunk)
+                self.audio_buffer.extend(decoded)
+                # 🔊 DEBUG: Write incremental audio dump
+                print("Writing debug audio...")
+                with open("/home/gm2629/input_debug.raw", "ab") as f:
+                    f.write(decoded)
+
+                    
             else:
                 # 🔹 No active OpenAI socket yet → buffer locally
                 import base64
                 decoded = base64.b64decode(base64_chunk)
                 self.audio_buffer.extend(decoded)
-
-                # 🔊 DEBUG: Write incremental audio dump
-                print("Writing debug audio...")
-                with open("/home/gm2629/input_debug.raw", "ab") as f:
-                    f.write(decoded)
 
 
             # # Optional: let browser know chunk was received

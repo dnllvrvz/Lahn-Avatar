@@ -516,6 +516,17 @@ export default function VoiceChatStream() {
         </Button>
       </div>
 
+      {/* Text Chat Button */}
+      <div className="mt-4">
+        <Button
+          className="bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-800"
+          onClick={() => window.open("https://lahn-avatar.uni-giessen.de/", "_blank")}
+        >
+          💬 Open Text Chat Avatar
+        </Button>
+      </div>
+
+
       {/* About Modal */}
       <Dialog open={showAbout} onOpenChange={setShowAbout}>
         <DialogContent

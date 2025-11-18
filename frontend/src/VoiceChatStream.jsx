@@ -85,7 +85,7 @@ export default function VoiceChatStream() {
     // Connect if not already connected
     await connectWebSocket();
 
-    const audioCtx = new AudioContext({ sampleRate: 48000 });
+    const audioCtx = new AudioContext({ sampleRate: 24000 });
     await audioCtx.audioWorklet.addModule("/pcm-processor.js");
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -112,17 +112,21 @@ export default function VoiceChatStream() {
 
     const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
 
-    const downsampleTarget = 24000;
-    const ratio = audioCtx.sampleRate / downsampleTarget;
+    // const downsampleTarget = 24000;
+    // const ratio = audioCtx.sampleRate / downsampleTarget;
 
     worklet.port.onmessage = (event) => {
       const floatChunk = event.data;
+      
+      // We already record at 24 kHz — NO resampling needed
+      const downsampled = floatChunk;
+
 
       // Downsample from 48 kHz → 24 kHz
-      const downsampled = new Float32Array(Math.floor(floatChunk.length / ratio));
-      for (let i = 0, j = 0; i < floatChunk.length; i += ratio, j++) {
-        downsampled[j] = floatChunk[Math.floor(i)];
-      }
+      // const downsampled = new Float32Array(Math.floor(floatChunk.length / ratio));
+      // for (let i = 0, j = 0; i < floatChunk.length; i += ratio, j++) {
+      //   downsampled[j] = floatChunk[Math.floor(i)];
+      // }
 
       // Convert Float32 → Int16 PCM
       const pcm16 = new Int16Array(downsampled.length);
@@ -131,9 +135,12 @@ export default function VoiceChatStream() {
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
 
+      if (wsRef.current.readyState === WebSocket.OPEN)
+        wsRef.current.send(pcm16.buffer);
+
       // Base64 encode and send to backend
-      const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
+      // const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+      // if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
     };
 
     source.connect(worklet);

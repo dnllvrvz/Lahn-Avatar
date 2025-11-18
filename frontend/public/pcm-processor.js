@@ -3,10 +3,12 @@ class PCMProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.buffer = [];
-    this.chunkSamples = Math.floor(sampleRate * 0.25);
+    this.chunkSamples = Math.floor(sampleRate * 0.04);
     this.chunkCount = 0;
     console.log(`[PCMProcessor] Initialized at ${sampleRate}Hz`);
-    console.log(`[PCMProcessor] Chunk size: ${this.chunkSamples} samples (250ms)`);
+    // console.log(`[PCMProcessor] Chunk size: ${this.chunkSamples} samples (250ms)`);
+    console.log(`[PCMProcessor] Chunk size: ${this.chunkSamples} samples (40 ms)`);
+
   }
 
   process(inputs) {

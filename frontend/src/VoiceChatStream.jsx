@@ -10,7 +10,7 @@ import "@fontsource/chakra-petch"; // npm install @fontsource/chakra-petch
 
 export default function VoiceChatStream() {
   const [isRecording, setIsRecording] = useState(false);
-  const [userSpeaking, setUserSpeaking] = useState(false);
+  // const [userSpeaking, setUserSpeaking] = useState(false);
   const [userVolume, setUserVolume] = useState(0);
 
   const [avatarPlaying, setAvatarPlaying] = useState(false);
@@ -125,7 +125,7 @@ export default function VoiceChatStream() {
       );
       const normalized = rms / 128;
       setUserVolume(normalized);
-      setUserSpeaking(normalized > 0.05); // threshold ≈ silence floor
+      // setUserSpeaking(normalized > 0.05); // threshold ≈ silence floor
 
       requestAnimationFrame(updateUserVolume);
     };
@@ -207,7 +207,7 @@ export default function VoiceChatStream() {
     }
 
     // 5️⃣ Reset UI state
-    setUserSpeaking(false);
+    // setUserSpeaking(false);
     setUserVolume(0);
     setIsRecording(false);
   };
@@ -449,12 +449,12 @@ export default function VoiceChatStream() {
           style={{ zIndex: 0, pointerEvents: "none" }}
           animate={{
             scale: userRippleScale,
-            opacity: userSpeaking ? 0.7 : 0,
+            opacity: isRecording ? 0.7 : 0,
           }}
           transition={{ duration: 0.1 }}
         />
         <div className="relative z-10 mt-20 text-lg font-bold text-white">
-          {!avatarPlaying && (userSpeaking ? "You are speaking…" : "Press mic to speak")}
+          {!avatarPlaying && (isRecording ? "You are speaking…" : "Press mic to speak")}
         </div>
       </div>
 

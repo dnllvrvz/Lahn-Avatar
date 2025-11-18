@@ -43,6 +43,8 @@ export default function VoiceChatStream() {
   const [wsConnected, setWsConnected] = useState(false);
 
   const recordingAudioCtxRef = useRef(null);
+  const recordingWorkletRef = useRef(null);
+
 
 
 
@@ -75,24 +77,43 @@ export default function VoiceChatStream() {
   const startRecording = async () => {
     resetAvatarAudio(); // discard any previous queued or paused audio
 
-    // Clean up any existing recording context
+    // 🔥 FULL mic reset
     if (recordingAudioCtxRef.current) {
-      try {
-        recordingAudioCtxRef.current.close();
-      } catch {}
+      try { recordingAudioCtxRef.current.close(); } catch {}
+      recordingAudioCtxRef.current = null;
     }
+
+    if (recordingWorkletRef.current) {
+      try { recordingWorkletRef.current.disconnect(); } catch {}
+      recordingWorkletRef.current = null;
+    }
+
+    if (userStreamRef.current) {
+      userStreamRef.current.getTracks().forEach(t => t.stop());
+      userStreamRef.current = null;
+    }
+
+
+    // // Clean up any existing recording context
+    // if (recordingAudioCtxRef.current) {
+    //   try {
+    //     recordingAudioCtxRef.current.close();
+    //   } catch {}
+    // }
 
     // Connect if not already connected
     await connectWebSocket();
 
     const audioCtx = new AudioContext({ sampleRate: 24000 });
     await audioCtx.audioWorklet.addModule("/pcm-processor.js");
+    recordingAudioCtxRef.current = audioCtx;
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioCtx.createMediaStreamSource(stream);
 
     // ── Mic volume analyser for green ripple ──
     const analyser = audioCtx.createAnalyser();
+    userAnalyserRef.current = analyser;
     analyser.fftSize = 512;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     source.connect(analyser);
@@ -111,13 +132,14 @@ export default function VoiceChatStream() {
 
 
     const worklet = new AudioWorkletNode(audioCtx, "pcm-processor");
+    recordingWorkletRef.current = worklet; 
 
     // const downsampleTarget = 24000;
     // const ratio = audioCtx.sampleRate / downsampleTarget;
 
     worklet.port.onmessage = (event) => {
       const floatChunk = event.data;
-      
+
       // We already record at 24 kHz — NO resampling needed
       const downsampled = floatChunk;
 
@@ -157,30 +179,39 @@ export default function VoiceChatStream() {
   // STOP RECORDING
   // ─────────────────────────────────────────────────────────────
   const stopRecording = () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "END",
-        conversation: conversation
-      }));
-      console.log('Conversation: ', conversation);
+    console.log("🛑 STOP RECORDING");
 
+    // 1️⃣ Tell backend user is done
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({ type: "END", conversation })
+      );
     }
+
+    // 2️⃣ Stop microphone tracks
     if (userStreamRef.current) {
-      userStreamRef.current.getTracks().forEach((t) => t.stop());
+      userStreamRef.current.getTracks().forEach(t => t.stop());
       userStreamRef.current = null;
     }
-    setUserSpeaking(false);
-    setUserVolume(0);
 
+    // 3️⃣ Kill worklet node
+    if (recordingWorkletRef.current) {
+      try { recordingWorkletRef.current.disconnect(); } catch {}
+      recordingWorkletRef.current = null;
+    }
+
+    // 4️⃣ Kill the AudioContext
     if (recordingAudioCtxRef.current) {
-      try {
-        recordingAudioCtxRef.current.close();
-      } catch {}
+      try { recordingAudioCtxRef.current.close(); } catch {}
       recordingAudioCtxRef.current = null;
     }
 
+    // 5️⃣ Reset UI state
+    setUserSpeaking(false);
+    setUserVolume(0);
     setIsRecording(false);
   };
+
 
 
   const resetAvatarAudio = () => {

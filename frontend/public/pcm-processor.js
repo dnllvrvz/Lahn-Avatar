@@ -32,6 +32,8 @@ class PCMProcessor extends AudioWorkletProcessor {
     // }
     
     this.buffer.push(...samples);
+    console.log("BUFFER LEN", this.buffer.length);
+
 
     while (this.buffer.length >= this.chunkSamples) {
       const chunk = this.buffer.splice(0, this.chunkSamples);

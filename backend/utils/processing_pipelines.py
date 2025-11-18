@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 import numpy as np
 import requests
 import websocket
+import base64
 
 from .avatar import RAG, sensor_query_llm
 from .utils import LahnSensorsTool
@@ -47,19 +48,28 @@ class OpenAIRealtimeClient:
         self.ws_thread = None
 
         # self.last_transcript = ""
-        self.last_language = 'en_' #None #"en"
+        # self.last_language = 'en_' #None #"en"
         # self._message_queue = []
 
-    def update_prompt_with_last_user_language(self):
-        index = self.prompt.find('CONTEXT INFORMATION')
-        self.prompt = self.prompt[:index] + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n' + self.prompt[index:]
+    # def update_prompt_with_last_user_language(self):
+    #     index = self.prompt.find('CONTEXT INFORMATION')
+    #     self.prompt = self.prompt[:index] + '\nYOU MUST RESPOND IN ' + self.last_language + '. DO NOT RESPOND IN ANY OTHER LANGUAGE. \n' + self.prompt[index:]
 
-        print('Telling model to respond in ', self.last_language)
+    #     print('Telling model to respond in ', self.last_language)
 
 
 
     def append_audio(self, base64_chunk):
         """Forward each base64 audio chunk to OpenAI if connected, else buffer."""
+
+        decoded = base64.b64decode(base64_chunk)
+        self.audio_buffer.extend(decoded)
+
+        # 🔊 DEBUG: Write incremental audio dump
+        with open("input_debug.raw", "ab") as f:
+            f.write(decoded)
+
+
         try:
             if self.ws and getattr(self.ws, "sock", None) and self.ws.sock.connected:
                 # 🔹 Send chunk directly to OpenAI realtime API
@@ -442,7 +452,6 @@ class OpenAIRealtimeClient:
                 delta = data.get('delta', '')
                 if delta:
                     # Convert from base64 to bytes (not hex)
-                    import base64
                     audio_chunk = base64.b64decode(delta)
                     if not self.streaming:
                         self.audio_buffer.extend(audio_chunk)

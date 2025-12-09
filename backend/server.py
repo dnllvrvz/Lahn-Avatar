@@ -21,8 +21,8 @@ UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # === Load LLM once at startup ===
-llm_choice = 'mistral-large-instruct' #"gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
-llm_second_choice = "hrz-chat-small"
+llm_choice = utils.avatar.llm_choice #'mistral-large-instruct' #"gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
+# llm_second_choice = "hrz-chat-small"
 
 llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, for consistency, since they're essentially the same thing. THis has llm.chat.completions.create around line 119. Doesnt work with gwdg format
 

@@ -510,7 +510,7 @@ def build_or_load_index(refresh=False):
 
 
 
-llm_choice = "gemma-3-27b-it"
+llm_choice = 'mistral-large-instruct' #"gemma-3-27b-it"
 # vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
 text_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Context is needed to address the most recent message in this conversation (NOTE: EMPHASIS ON THE USER\'S LAST MESSAGE. INFO IS NEEDED TO RESPOND TO THE USER\'S LAST MESSAGE) (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, a "|" divider, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3 | keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: ')
 #This should be a very technically capable model, to cut down the chances of buggy-code-related issues.

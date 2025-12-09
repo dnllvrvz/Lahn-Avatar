@@ -9,7 +9,6 @@ from llama_index.core.tools.query_engine import QueryEngineTool
 from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines #, build_index, build_or_load_index, search_text_index
 from utils.utils import transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
-import utils.avatar.llm_choice as llm_choice
 
 import os,threading
 from concurrent.futures import ThreadPoolExecutor, wait

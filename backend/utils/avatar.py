@@ -562,6 +562,11 @@ def fetch_vector_index_context(query):
     # response =  vector_index_query_engine.query(query)
     # print('\n\nContext from vector index: ', response)
 
+    response = "\n\n".join(
+        "".join(ch for ch in r.node.text if 32 <= ord(ch) <= 126 or ch in "\n\r\t")
+        for r in v_response
+    )
+
     print('Done fetching context from vector index...')
     return response
 

@@ -598,4 +598,4 @@ def RAG(query, translated=False): #, text_index_query=None):
         if line.strip()
     )
     print('-----\n\nRAG result: ', printable)
-    return total_context
+    return printable

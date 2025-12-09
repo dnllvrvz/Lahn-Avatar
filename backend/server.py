@@ -9,6 +9,7 @@ from llama_index.core.tools.query_engine import QueryEngineTool
 from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines #, build_index, build_or_load_index, search_text_index
 from utils.utils import transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
+import utils.avatar.llm_choice as llm_choice
 
 import os,threading
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -21,7 +22,7 @@ UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # === Load LLM once at startup ===
-llm_choice = utils.avatar.llm_choice #'mistral-large-instruct' #"gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
+# llm_choice = utils.avatar.llm_choice #'mistral-large-instruct' #"gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
 # llm_second_choice = "hrz-chat-small"
 
 llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, for consistency, since they're essentially the same thing. THis has llm.chat.completions.create around line 119. Doesnt work with gwdg format

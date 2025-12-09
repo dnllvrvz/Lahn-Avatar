@@ -1,13 +1,13 @@
 
-import numpy as np
+# import numpy as np
 
 import torch, torchaudio
 import subprocess, time
 
 
-import os, io, shutil
-from openai import AzureOpenAI, AsyncAzureOpenAI
-import base64
+import io#, shutil
+# from openai import AzureOpenAI, AsyncAzureOpenAI
+# import base64
 
 from dotenv import load_dotenv
 from typing import Any, List
@@ -16,7 +16,7 @@ from typing import Any, List
 import requests
 import pandas as pd
 from llama_index.experimental.query_engine import PandasQueryEngine
-from llama_index.core.memory.types import BaseMemory
+# from llama_index.core.memory.types import BaseMemory
 
 
 

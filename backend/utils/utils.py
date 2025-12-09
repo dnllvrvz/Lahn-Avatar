@@ -3,7 +3,6 @@ import numpy as np
 
 import torch, torchaudio
 import subprocess, time
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 
 import os, io, shutil
@@ -18,13 +17,6 @@ import requests
 import pandas as pd
 from llama_index.experimental.query_engine import PandasQueryEngine
 from llama_index.core.memory.types import BaseMemory
-
-
-whisper_device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"🔄 Loading Whisper model on {whisper_device}...")
-whisper_processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-whisper_model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small").to(whisper_device)
-print("✅ Whisper model loaded.")
 
 
 
@@ -195,6 +187,14 @@ def pcm_to_wav_bytes(pcm_bytes, sample_rate=24000, n_channels=1, sampwidth=2):
 
     
 def transcribe_audio(file_path):
+    from transformers import WhisperProcessor, WhisperForConditionalGeneration
+    
+    whisper_device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🔄 Loading Whisper model on {whisper_device}...")
+    whisper_processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+    whisper_model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small").to(whisper_device)
+    print("✅ Whisper model loaded.")
+
     temp_wav_path = file_path.rsplit(".", 1)[0] + "_converted.wav"
     convert_to_wav(file_path, temp_wav_path)
 

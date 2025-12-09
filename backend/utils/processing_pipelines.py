@@ -373,6 +373,7 @@ class OpenAIRealtimeClient:
     def _on_open(self, ws):
         """Handle WebSocket connection open."""
         print("✅ Connected to OpenAI Realtime API")
+        # print("🔥 NEW SESSION STARTED", time.time())
 
         # --- Add tool definitions ---
         tools = [

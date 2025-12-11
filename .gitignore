@@ -17,3 +17,5 @@ test/
 
 backend/.env
 backend/utils/.env
+
+avatars.json

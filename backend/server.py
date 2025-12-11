@@ -381,5 +381,99 @@ def test_stream(ws):
         print("Got:", data)
         ws.send(f"Echo: {data}")
 
+
+
+
+
+
+#Multi-Avatar Management
+
+
+# avatars_api.py
+from flask import Blueprint, request, jsonify
+
+avatars_bp = Blueprint("avatars", __name__)
+
+app.register_blueprint(avatars_bp)
+
+# In-memory storage (replace with DB later if you like)
+avatars_path = 'avatars.json'
+
+
+@avatars_bp.route("/api/avatars", methods=["GET", "POST"])
+def avatars_collection():
+    """
+    GET  /api/avatars  -> list all avatars
+    POST /api/avatars  -> create a new avatar
+    """
+
+    avatars = json.load(open(avatars_path, 'r'))
+    print('Avatars: ', avatars)
+
+    if request.method == "GET":
+        # Frontend expects: [{ id, name, systemPromptUrl, contextDocsUrl, sensorApiUrl }, ...]
+        return jsonify(avatars), 200
+
+    # POST
+    data = request.get_json() or {}
+
+    name = (data.get("name") or "").strip()
+    system_prompt_url = data.get("systemPromptUrl") or ""
+    context_docs_url = data.get("contextDocsUrl") or ""
+    sensor_api_url = data.get("sensorApiUrl") or ""
+
+    if not name:
+        return jsonify({"error": "Avatar 'name' is required."}), 400
+
+    # Make id a string so it matches React's select value and find() comparison
+
+    max_id = max(int(a["id"]) for a in avatars)
+    next_id = str(max_id + 1)
+
+    avatar = {
+        "id": next_id,
+        "name": name,
+        "systemPromptUrl": system_prompt_url,
+        "contextDocsUrl": context_docs_url,
+        "sensorApiUrl": sensor_api_url,
+    }
+
+    avatars.append(avatar)
+    print('Avatars after modification: ', avatars)
+    json.dump(avatars, open(avatars_path, 'w'))
+    # Frontend expects the created avatar object back
+    return jsonify(avatar), 201
+
+
+@avatars_bp.route("/api/avatars/<avatar_id>", methods=["PUT"])
+def avatar_detail(avatar_id):
+    """
+    PUT /api/avatars/<avatar_id> -> update an existing avatar
+    """
+    data = request.get_json() or {}
+    avatars = json.load(open(avatars_path, 'r'))
+    print('Avatars: ', avatars)
+
+    # Find avatar by string id
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+    if avatar is None:
+        return jsonify({"error": "Avatar not found."}), 404
+
+    # Only update fields present in request
+    for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl"]:
+        if field in data and data[field] is not None:
+            avatar[field] = data[field]
+
+    print('Avatars after modification: ', avatars)
+    json.dump(avatars, open(avatars_path, 'w'))
+
+    return jsonify(avatar), 200
+
+
+
+
+
+
+
 if __name__ == "__main__":
     app.run(debug=False, use_reloader=False, port=5001)

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "./index.css";
 
 import LahnAvatarChat from "./App.jsx";
+import MultiAvatarChat from "./AvatarsChat.jsx"
 import VoiceChat from "./VoiceChat.jsx";
 import VoiceChatStream from "./VoiceChatStream.jsx";
 import ExperienceUploadPage from "./ExperienceUploadPage.jsx";
@@ -22,6 +23,7 @@ createRoot(document.getElementById("root")).render(
       <Route path="experience" element={<ExperienceUploadPage />} />
       <Route path="voice-chat" element={<VoiceChat />} />
       <Route path="voice-chat-stream" element={<VoiceChatStream />} />
+      <Route path="avatars-chat" element={<MultiAvatarChat />} />
       <Route path="*" element={<LahnAvatarChat />} />
       {/*</Route>*/}
     </Routes>

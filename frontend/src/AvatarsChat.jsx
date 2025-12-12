@@ -463,7 +463,7 @@ export default function MultiAvatarChat() {
               <div>
                 <label className="block text-sm font-semibold mb-1">Avatar name</label>
                 <Input
-                  className="border border-gray-300 rounded-md px-3 py-2"
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
@@ -479,7 +479,7 @@ export default function MultiAvatarChat() {
                   Link to system prompt
                 </label>
                 <Input
-                  className="border border-gray-300 rounded-md px-3 py-2"
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
@@ -495,7 +495,7 @@ export default function MultiAvatarChat() {
                   Link to context documents
                 </label>
                 <Input
-                  className="border border-gray-300 rounded-md px-3 py-2"
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
@@ -511,7 +511,7 @@ export default function MultiAvatarChat() {
                   Link to sensor data API
                 </label>
                 <Input
-                  className="border border-gray-300 rounded-md px-3 py-2"
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',

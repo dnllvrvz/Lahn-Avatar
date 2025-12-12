@@ -406,7 +406,7 @@ def avatars_collection():
     """
 
     avatars = json.load(open(avatars_path, 'r'))
-    print('Avatars: ', avatars)
+    print('\nAvatars: ', avatars)
 
     if request.method == "GET":
         # Frontend expects: [{ id, name, systemPromptUrl, contextDocsUrl, sensorApiUrl }, ...]

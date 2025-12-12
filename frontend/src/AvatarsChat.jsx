@@ -62,6 +62,8 @@ export default function MultiAvatarChat() {
 
   const selectedAvatar = avatars.find(a => a.id === selectedAvatarId) || null;
 
+  const firstRender = useRef(true);
+
   // === Avatar CRUD helpers ===
 
   const openCreateAvatarForm = () => {
@@ -241,6 +243,10 @@ export default function MultiAvatarChat() {
   };
 
   useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return; // skip scrolling on initial load
+    }
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -248,7 +254,7 @@ export default function MultiAvatarChat() {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-4 flex flex-col items-center"
+      className="min-h-screen bg-gradient-to-br from-blue-100 via-sky-100 to-indigo-100 p-4 flex flex-col items-center"
       style={{ fontFamily: "'Chakra Petch', sans-serif" }}
     >
       <motion.h1
@@ -457,6 +463,7 @@ export default function MultiAvatarChat() {
               <div>
                 <label className="block text-sm font-semibold mb-1">Avatar name</label>
                 <Input
+                  className="bg-gray-50 text-black border-gray-300"
                   value={avatarForm.name}
                   onChange={e => handleAvatarFormChange("name", e.target.value)}
                   placeholder="e.g. Lahn River, Forest Spirit..."
@@ -467,6 +474,7 @@ export default function MultiAvatarChat() {
                   Link to system prompt
                 </label>
                 <Input
+                  className="bg-gray-50 text-black border-gray-300"
                   value={avatarForm.systemPromptUrl}
                   onChange={e => handleAvatarFormChange("systemPromptUrl", e.target.value)}
                   placeholder="https://… (system prompt document)"
@@ -477,6 +485,7 @@ export default function MultiAvatarChat() {
                   Link to context documents
                 </label>
                 <Input
+                  className="bg-gray-50 text-black border-gray-300"
                   value={avatarForm.contextDocsUrl}
                   onChange={e => handleAvatarFormChange("contextDocsUrl", e.target.value)}
                   placeholder="https://… (context / RAG docs)"
@@ -487,6 +496,7 @@ export default function MultiAvatarChat() {
                   Link to sensor data API
                 </label>
                 <Input
+                  className="bg-gray-50 text-black border-gray-300"
                   value={avatarForm.sensorApiUrl}
                   onChange={e => handleAvatarFormChange("sensorApiUrl", e.target.value)}
                   placeholder="https://…/sensors"

@@ -394,8 +394,6 @@ from flask import Blueprint, request, jsonify
 
 avatars_bp = Blueprint("avatars", __name__)
 
-app.register_blueprint(avatars_bp)
-
 # In-memory storage (replace with DB later if you like)
 avatars_path = 'avatars.json'
 
@@ -470,7 +468,7 @@ def avatar_detail(avatar_id):
     return jsonify(avatar), 200
 
 
-
+app.register_blueprint(avatars_bp)
 
 
 

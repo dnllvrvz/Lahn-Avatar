@@ -423,10 +423,14 @@ def avatars_collection():
     if not name:
         return jsonify({"error": "Avatar 'name' is required."}), 400
 
-    # Make id a string so it matches React's select value and find() comparison
+    os.makedirs(f"avatars_context/{name}", exist_ok=True)
 
-    max_id = max(int(a["id"]) for a in avatars)
-    next_id = str(max_id + 1)
+    # Make id a string so it matches React's select value and find() comparison
+    if len(avatars) == 0:
+        next_id = '0'
+    else:
+        max_id = max(int(a["id"]) for a in avatars)
+        next_id = str(max_id + 1)
 
     avatar = {
         "id": next_id,

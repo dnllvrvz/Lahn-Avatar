@@ -467,7 +467,6 @@ export default function MultiAvatarChat() {
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
-                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
                   }}
                   value={avatarForm.name}
                   onChange={e => handleAvatarFormChange("name", e.target.value)}
@@ -483,7 +482,6 @@ export default function MultiAvatarChat() {
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
-                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
                   }}
                   value={avatarForm.systemPromptUrl}
                   onChange={e => handleAvatarFormChange("systemPromptUrl", e.target.value)}
@@ -499,7 +497,6 @@ export default function MultiAvatarChat() {
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
-                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
                   }}
                   value={avatarForm.contextDocsUrl}
                   onChange={e => handleAvatarFormChange("contextDocsUrl", e.target.value)}
@@ -515,7 +512,6 @@ export default function MultiAvatarChat() {
                   style={{
                     backgroundColor: '#f9fafb',
                     color: '#000000',
-                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
                   }}
                   value={avatarForm.sensorApiUrl}
                   onChange={e => handleAvatarFormChange("sensorApiUrl", e.target.value)}

@@ -463,7 +463,12 @@ export default function MultiAvatarChat() {
               <div>
                 <label className="block text-sm font-semibold mb-1">Avatar name</label>
                 <Input
-                  className="bg-gray-50 text-black border-gray-300"
+                  className="border border-gray-300 rounded-md px-3 py-2"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
+                  }}
                   value={avatarForm.name}
                   onChange={e => handleAvatarFormChange("name", e.target.value)}
                   placeholder="e.g. Lahn River, Forest Spirit..."
@@ -474,7 +479,12 @@ export default function MultiAvatarChat() {
                   Link to system prompt
                 </label>
                 <Input
-                  className="bg-gray-50 text-black border-gray-300"
+                  className="border border-gray-300 rounded-md px-3 py-2"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
+                  }}
                   value={avatarForm.systemPromptUrl}
                   onChange={e => handleAvatarFormChange("systemPromptUrl", e.target.value)}
                   placeholder="https://… (system prompt document)"
@@ -485,7 +495,12 @@ export default function MultiAvatarChat() {
                   Link to context documents
                 </label>
                 <Input
-                  className="bg-gray-50 text-black border-gray-300"
+                  className="border border-gray-300 rounded-md px-3 py-2"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
+                  }}
                   value={avatarForm.contextDocsUrl}
                   onChange={e => handleAvatarFormChange("contextDocsUrl", e.target.value)}
                   placeholder="https://… (context / RAG docs)"
@@ -496,7 +511,12 @@ export default function MultiAvatarChat() {
                   Link to sensor data API
                 </label>
                 <Input
-                  className="bg-gray-50 text-black border-gray-300"
+                  className="border border-gray-300 rounded-md px-3 py-2"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                    WebkitTextFillColor: '#000000', // for Safari/Chrome autofill weirdness
+                  }}
                   value={avatarForm.sensorApiUrl}
                   onChange={e => handleAvatarFormChange("sensorApiUrl", e.target.value)}
                   placeholder="https://…/sensors"

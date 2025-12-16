@@ -11,7 +11,6 @@ from utils.utils import transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, for
 from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
 
 import os,threading
-from concurrent.futures import ThreadPoolExecutor, wait
 
 # === Initialize Flask ===
 app = Flask(__name__)
@@ -424,6 +423,8 @@ def avatars_collection():
     if not name:
         return jsonify({"error": "Avatar 'name' is required."}), 400
 
+    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nRecieved Request to Create New Avatar.')
+
     # Make id a string so it matches React's select value and find() comparison
     if len(avatars) == 0:
         next_id = '0'
@@ -433,12 +434,15 @@ def avatars_collection():
 
     os.makedirs(f"avatars_context/{next_id}", exist_ok=True)
 
+    if system_prompt_url != '':
+        fetch_system_prompt_from_gdoc(next_id, system_prompt_url)
+
     #Run this in a thread
     #Set up RAG index for avatar
     if context_docs_url != '':
         drive_folder_id = context_docs_url.split("/folders/")[1].split("?")[0]
-        print('Building Index for Avatar '+ next_id)
-        results = build_or_load_index(next_id, drive_folder_id)
+        print('Building Index for Avatar: '+ next_id)
+        threading.Thread(target=build_or_load_index, kwargs={"avatar_id": next_id, "drive_folder_id": drive_folder_id}).start()
     else:
         drive_folder_id = None
 

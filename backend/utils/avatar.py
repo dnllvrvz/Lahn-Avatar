@@ -68,7 +68,7 @@ def fetch_system_prompt_from_gdoc(avatar_id='0', system_prompt_url="https://docs
     prompt_dir = 'avatars_context/' + avatar_id+'/prompt/'
     os.makedirs(prompt_dir, exist_ok=True)
     # url = "https://docs.google.com/document/d/1NYOOy8KkaLDBwvHvEVg1hVDY5yvHeLACUpCEkJVM8Kw/export?format=txt"
-    response = requests.get(system_prompt)
+    response = requests.get(system_prompt_url)
     response.raise_for_status()
     prompt = response.text.strip()
     # prompt = prompt[:prompt.find('General Internal Impressions')]

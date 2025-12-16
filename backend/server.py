@@ -6,7 +6,7 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines #, build_index, build_or_load_index, search_text_index
+from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines, build_or_load_index #, build_index, , search_text_index
 from utils.utils import transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
 from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
 
@@ -63,6 +63,7 @@ topic_descriptions = {
 def chat():
     global llm, llm_choice, system_prompt
     print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received.')
+    avatar = request.args.get("avatar")
 
     data = request.get_json()
     prompt = data.get("prompt", "")
@@ -423,14 +424,23 @@ def avatars_collection():
     if not name:
         return jsonify({"error": "Avatar 'name' is required."}), 400
 
-    os.makedirs(f"avatars_context/{name}", exist_ok=True)
-
     # Make id a string so it matches React's select value and find() comparison
     if len(avatars) == 0:
         next_id = '0'
     else:
         max_id = max(int(a["id"]) for a in avatars)
         next_id = str(max_id + 1)
+
+    os.makedirs(f"avatars_context/{next_id}", exist_ok=True)
+
+    #Run this in a thread
+    #Set up RAG index for avatar
+    if context_docs_url != '':
+        drive_folder_id = context_docs_url.split("/folders/")[1].split("?")[0]
+        print('Building Index for Avatar '+ next_id)
+        results = build_or_load_index(next_id, drive_folder_id)
+    else:
+        drive_folder_id = None
 
     avatar = {
         "id": next_id,

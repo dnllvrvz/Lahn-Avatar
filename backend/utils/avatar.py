@@ -27,6 +27,18 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from .gwdg_llm import GWDGChatLLM
 from .utils import format_history_as_string
 
+import re, unicodedata, pickle
+from langdetect import detect
+from deep_translator import GoogleTranslator   # or DeeplTranslator
+from nltk.tokenize import word_tokenize, sent_tokenize
+from rank_bm25 import BM25Okapi
+import nltk
+
+# from langdetect import detect
+from deep_translator import GoogleTranslator
+import spacy
+import langid
+
 
 load_dotenv()
 
@@ -35,10 +47,6 @@ load_dotenv()
 DRIVE_FOLDER_ID = "1vT4UTYHeFxS5Vy2u_OfQyQ6cQ-cP5Ywd"
 API_KEY = os.getenv("GWDG_API_KEY") 
 API_BASE = os.getenv("GWDG_API_BASE")
-
-AZURE_VERSION = os.getenv("AZURE_API_VERSION")
-AZURE_KEY = os.getenv("AZURE_CHAT_KEY")
-AZURE_BASE = os.getenv("AZURE_API_BASE")
 
 # base_dir = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "./data" #os.path.join(base_dir, "/data")
@@ -165,16 +173,6 @@ def create_session_log():
     return open(os.path.join(LOG_DIR, f"session_{timestamp}.txt"), "w")
 
 
-#wrt Text Index
-
-# pip install deep_translator langdetect rank_bm25 nltk unicodedata
-import re, unicodedata, pickle
-from langdetect import detect
-from deep_translator import GoogleTranslator   # or DeeplTranslator
-from nltk.tokenize import word_tokenize, sent_tokenize
-from rank_bm25 import BM25Okapi
-import nltk
-
 def ensure_punkt_tab():
     try:
         # this will raise LookupError if not found
@@ -285,29 +283,6 @@ def search_text_index(bm25, chunks, en_keywords, de_keywords, k_each:int=5):
         results.append(chunks[idx])
     return results
 
-# ------------------------------------------------------------------
-# 4. demo
-# ------------------------------------------------------------------
-# for tag, score, snippet in search_dual("Tell me about fish and their sizes"):
-#     print(f"[{tag}] {score:6.2f}  {snippet}")
-
-
-
-
-
-
-
-
-# from langdetect import detect
-from deep_translator import GoogleTranslator
-import spacy
-
-# Load multilingual models (download with: python -m spacy download en_core_web_sm && python -m spacy download de_core_news_sm)
-# nlp_en = spacy.load("en_core_web_sm")
-# nlp_de = spacy.load("de_core_news_sm")
-
-
-
 
 def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
 
@@ -325,18 +300,6 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
     return parts
 
 
-# def extract_keywords(text):
-#     # Detect language
-#     lang = detect(text) #Works poorly for sentences that mix both languages
-#     print('Detected language: ', lang, '. Input: ', text)
-#     if lang.startswith('de'):
-#         nlp = nlp_de
-#         target_lang = 'en' #Assumes the language is English if it's nt German
-#     else:
-#         nlp = nlp_en
-#         target_lang = 'de'
-
-import langid
 
 # Preload your NLP models
 nlp_en = spacy.load("en_core_web_sm")
@@ -385,43 +348,32 @@ def extract_keywords(text):
     return en_keywords, de_keywords 
 
 
+def build_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID):
+    index_dir = 'avatars_context/' + avatar_id+'/index'
+    data_dir = 'avatars_context/' + avatar_id+'/data'
 
-
-
-def build_index():
-    # cmd = f"shopt -s extglob; rm -rf data/!(uploaded_experiences)"
-    # subprocess.run(cmd, shell=True) #
-
-    # subprocess.run(
-    #     "find data -mindepth 1 -not -name 'uploaded_experiences' -exec rm -rf {} +",
-    #     shell=True,
-    #     check=True
-    # )
-
-
-    # print('Just cleared data/ . Contents: ', os.listdir('data'))
-    print('Contents of data/ :')
-    for root, dirs, files in os.walk("data"):
+    print('Contents of ' + data_dir + ' :')
+    for root, dirs, files in os.walk(data_dir):
         for name in files:
             print(os.path.join(root, name))
 
 
     print('\nRefreshing from Google Drive...')
-    download_drive_folder(DRIVE_FOLDER_ID, DATA_DIR)
-    convert_docx_to_txt_and_cleanup(DATA_DIR)
+    download_drive_folder(DRIVE_FOLDER_ID, data_dir)
+    convert_docx_to_txt_and_cleanup(data_dir)
 
     print('Creating Context store from data sources...')
 
-    if len(os.listdir(DATA_DIR))>0:
-        documents = SimpleDirectoryReader(DATA_DIR, recursive=True).load_data()
-        print(f"{len(documents)} documents loaded from {DATA_DIR}")
+    if len(os.listdir(data_dir))>0:
+        documents = SimpleDirectoryReader(data_dir, recursive=True).load_data()
+        print(f"{len(documents)} documents loaded from {data_dir}")
         # for i, doc in enumerate(documents):
         #     print(f"\n--- Document {i+1} ---")
         #     print("File:", doc.metadata.get('file_path', 'Unknown'))
         #     print("Content preview:", doc.text[:300], "...\n")
 
 
-    links_path = Path(DATA_DIR) / "General_News/Online News (Links).txt"
+    links_path = Path(data_dir) / "General_News/Online News (Links).txt"
     if links_path.exists():
         with open(links_path, "r") as f:
             urls = [line.strip() for line in f if line.strip()]
@@ -447,29 +399,29 @@ def build_index():
             except Exception as e:
                 print(f"❌ Failed to fetch {url}: {e}")
 
-    scraped_documents_path = Path(DATA_DIR) / "General_News/scraped_texts"
+    scraped_documents_path = Path(data_dir) / "General_News/scraped_texts"
     if  scraped_documents_path.exists() and len(os.listdir(str(scraped_documents_path)))>0:
         scraped_documents = SimpleDirectoryReader(str(Path(DATA_DIR) / "General_News/scraped_texts")).load_data()
         documents += scraped_documents
 
-    experiences_folder_path = Path(DATA_DIR) / "uploaded_experiences/text"
+    experiences_folder_path = Path(data_dir) / "uploaded_experiences/text"
     # experiences_folder_is_empty = not os.listdir(str(Path(DATA_DIR) / "uploaded_experiences/text"))
     if experiences_folder_path.exists() and len(os.listdir(str(experiences_folder_path)))>0:
-        new_uploads = SimpleDirectoryReader(str(Path(DATA_DIR) / "uploaded_experiences"), recursive=True).load_data()
+        new_uploads = SimpleDirectoryReader(str(Path(data_dir) / "uploaded_experiences"), recursive=True).load_data()
         documents += new_uploads
+        #Why is this commented out? []
         # user_experiences = SimpleDirectoryReader(str(Path(DATA_DIR) / "uploaded_experiences/text")).load_data()
         # documents += user_experiences
 
     vector_index = VectorStoreIndex.from_documents(documents)
-    vector_index.storage_context.persist(persist_dir=STORAGE_DIR)
+    vector_index.storage_context.persist(persist_dir=index_dir)
 
 
     context = '\n'.join([doc.text for doc in documents])
     text_index, chunks = prepare_text_index(context)
 
-    pickle.dump(text_index, open(STORAGE_DIR+'/text_index.pkl','wb'))
-    pickle.dump(chunks, open(STORAGE_DIR+'/chunks.pkl','wb'))
-    # index = text_index
+    pickle.dump(text_index, open(index_dir+'/text_index.pkl','wb'))
+    pickle.dump(chunks, open(index_dir+'/chunks.pkl','wb'))
 
 
     print('Done')
@@ -478,32 +430,34 @@ def build_index():
 
 
 
-def build_or_load_index(refresh=False):
+def build_or_load_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refresh=False):
     Settings.embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    index_dir = 'avatars_context/' + avatar_id+'/index'
+    data_dir = 'avatars_context/' + avatar_id+'/data'
 
     index_ready = (
-        os.path.exists(STORAGE_DIR)
+        os.path.exists(index_dir)
 
         #Vector index
-        and os.path.exists(os.path.join(STORAGE_DIR, "docstore.json"))
-        and os.path.exists(os.path.join(STORAGE_DIR, "index_store.json"))
+        and os.path.exists(os.path.join(index_dir, "docstore.json"))
+        and os.path.exists(os.path.join(index_dir, "index_store.json"))
 
         #Text index
-        and os.path.exists(os.path.join(STORAGE_DIR, "text_index.pkl"))
-        and os.path.exists(os.path.join(STORAGE_DIR, "chunks.pkl"))
+        and os.path.exists(os.path.join(index_dir, "text_index.pkl"))
+        and os.path.exists(os.path.join(index_dir, "chunks.pkl"))
     )
 
     if index_ready and not refresh:
         print('Loading index from storage...')
-        storage_context = StorageContext.from_defaults(persist_dir=STORAGE_DIR)
+        storage_context = StorageContext.from_defaults(persist_dir=index_dir)
         vector_index = load_index_from_storage(storage_context)
 
-        text_index = pickle.load(open(STORAGE_DIR+'/text_index.pkl','rb'))
-        chunks = pickle.load(open(STORAGE_DIR+'/chunks.pkl','rb'))
+        text_index = pickle.load(open(index_dir+'/text_index.pkl','rb'))
+        chunks = pickle.load(open(index_dir+'/chunks.pkl','rb'))
         return vector_index, text_index, chunks
 
     #Index needs to be built and loaded
-    vector_index, text_index, chunks = build_index()
+    vector_index, text_index, chunks = build_index(avatar_id, drive_folder_id)
     
     return vector_index, text_index, chunks
 

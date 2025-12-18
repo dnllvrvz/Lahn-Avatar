@@ -12,10 +12,9 @@ import requests
 import websocket
 import base64
 
-from .avatar import RAG, sensor_query_llm
-from .utils import LahnSensorsTool
+from .utils import RAG
+from .avatar_setup import sensor_query_tool
 
-sensor_query_tool = LahnSensorsTool(sensor_query_llm)
 
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""

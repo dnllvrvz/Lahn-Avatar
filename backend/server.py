@@ -105,7 +105,7 @@ def chat():
     llm = avatar_llms[avatar_id]
 
     chat_completion = llm.complete(
-          messages= messages_to_send,
+          messages_to_send,
           # model= llm_choice,
           # temperature=0.1
           # top_p=0.7
@@ -129,7 +129,7 @@ def chat():
     # if len(results)>0:
         print('Passing analysis results to LLM..') #: ', chat_history+[{'role':'system', 'content':results}])
         chat_completion_2 = llm.complete(
-              messages=chat_history+[{'role':'assistant', 'content':results}],
+              chat_history+[{'role':'assistant', 'content':results}],
               # model= llm_choice,
               # top_p=0.8
           )

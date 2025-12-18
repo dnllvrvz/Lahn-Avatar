@@ -1,4 +1,4 @@
-from typing import Any, Generator, List, Literal
+from typing import Any, Literal, List, Dict, Union, Optional
 from pydantic import Field
 from llama_index.core.llms import (
     CustomLLM,
@@ -11,54 +11,70 @@ from llama_index.core.llms import (
 )
 
 
-from llama_index.core.llms.callbacks import llm_completion_callback, llm_chat_callback
+from llama_index.core.llms.callbacks import llm_completion_callback #, llm_chat_callback
 import requests, json
 
 
 
+Message = Dict[str, str]  # {"role": "...", "content": "..."}
+
+
 class LLM(CustomLLM):
-    # Which backend to use for THIS instance: "gwdg" or "openai"
     provider: Literal["gwdg", "openai"] = Field(default="gwdg")
 
-    # --- shared config ---
     temperature: float = Field(default=0.1)
     system_prompt: str = Field(default="")
 
     context_window: int = 128000
     num_output: int = 512
 
-    # --- GWDG config ---
     gwdg_model: str = Field(default="gemma-3-27b-it")
     gwdg_api_base: str = Field(default="https://llm.hrz.uni-giessen.de/api")
-    gwdg_api_key: str = Field(default="")  # set this when using provider="gwdg"
+    gwdg_api_key: str = Field(default="")
 
-    # --- OpenAI config ---
     openai_model: str = Field(default="gpt-4.1-mini")
     openai_api_base: str = Field(default="https://api.openai.com/v1")
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
     @property
     def metadata(self) -> LLMMetadata:
-        if self.provider == "gwdg":
-            model_name = self.gwdg_model
-        else:
-            model_name = self.openai_model
-
+        model_name = self.gwdg_model if self.provider == "gwdg" else self.openai_model
         return LLMMetadata(
             context_window=self.context_window,
             num_output=self.num_output,
             model_name=model_name,
         )
 
-    # ------------- helpers -------------
+    # ---------- message handling ----------
 
-    def _build_messages(self, prompt: str):
-        return [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": prompt},
-        ]
+    def _normalize_messages(
+        self,
+        prompt_or_messages: Union[str, List[Message]],
+        messages: Optional[List[Message]] = None,
+    ) -> List[Message]:
+        """
+        Accept either:
+          - prompt_or_messages as str
+          - prompt_or_messages as a messages list
+          - or messages passed via kwargs
+        """
+        if messages is not None:
+            final = messages
+        elif isinstance(prompt_or_messages, list):
+            final = prompt_or_messages
+        else:
+            final = [{"role": "user", "content": str(prompt_or_messages)}]
 
-    def _complete_gwdg(self, prompt: str) -> CompletionResponse:
+        # If caller didn't supply a system message but we have system_prompt, inject it
+        has_system = any(m.get("role") == "system" for m in final)
+        if self.system_prompt and not has_system:
+            final = [{"role": "system", "content": self.system_prompt}] + final
+
+        return final
+
+    # ---------- provider calls ----------
+
+    def _complete_gwdg(self, messages: List[Message]) -> CompletionResponse:
         if not self.gwdg_api_key:
             raise RuntimeError("GWDG API key not set (gwdg_api_key).")
 
@@ -69,7 +85,7 @@ class LLM(CustomLLM):
 
         payload = {
             "model": self.gwdg_model,
-            "messages": self._build_messages(prompt),
+            "messages": messages,
             "temperature": self.temperature,
         }
 
@@ -79,7 +95,7 @@ class LLM(CustomLLM):
         content = resp.json()["choices"][0]["message"]["content"]
         return CompletionResponse(text=content)
 
-    def _complete_openai(self, prompt: str) -> CompletionResponse:
+    def _complete_openai(self, messages: List[Message]) -> CompletionResponse:
         if not self.openai_api_key:
             raise RuntimeError("OpenAI API key not set (openai_api_key or OPENAI_API_KEY).")
 
@@ -90,7 +106,7 @@ class LLM(CustomLLM):
 
         payload = {
             "model": self.openai_model,
-            "messages": self._build_messages(prompt),
+            "messages": messages,
             "temperature": self.temperature,
         }
 
@@ -100,20 +116,21 @@ class LLM(CustomLLM):
         content = resp.json()["choices"][0]["message"]["content"]
         return CompletionResponse(text=content)
 
-    # ------------- main LLM interface -------------
+    # ---------- main LLM interface ----------
 
     @llm_completion_callback()
-    def complete(self, prompt: str, **kwargs: Any) -> CompletionResponse:
+    def complete(self, prompt: Any, **kwargs: Any) -> CompletionResponse:
+        # Accept messages via kwargs OR by passing a list as `prompt`
+        messages = self._normalize_messages(prompt, messages=kwargs.get("messages"))
+
         if self.provider == "gwdg":
-            return self._complete_gwdg(prompt)
-        elif self.provider == "openai":
-            return self._complete_openai(prompt)
-        else:
-            raise ValueError(f"Unknown provider: {self.provider}")
+            return self._complete_gwdg(messages)
+        if self.provider == "openai":
+            return self._complete_openai(messages)
+        raise ValueError(f"Unknown provider: {self.provider}")
 
     @llm_completion_callback()
-    def stream_complete(self, prompt: str, **kwargs: Any) -> CompletionResponseGen:
-        # Simple “fake” streaming: just call complete and yield once
+    def stream_complete(self, prompt: Any, **kwargs: Any) -> CompletionResponseGen:
         full = self.complete(prompt, **kwargs)
         yield CompletionResponse(text=full.text, delta=full.text)
 

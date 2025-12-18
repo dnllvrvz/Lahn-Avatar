@@ -175,7 +175,7 @@ export default function MultiAvatarChat() {
     setIsThinking(true);
     try {
       const resp = await fetch(
-        "/api/chat",
+        "/api/chat?avatar="+selectedAvatar.id,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -241,6 +241,25 @@ export default function MultiAvatarChat() {
     setIsThinking(true);
     await fetchMessage({ history: updated, prompt: userInput });
   };
+
+  useEffect(() => {
+    // Reset chat when switching avatars
+    setDefaultMessages([]);
+    setDebateMessages([]);
+    setInput("");
+
+    setDefaultThinking(false);
+    setDebateThinking(false);
+
+    // Optional: reset debate UI too
+    setSelectedTopic("");
+    setDebateSummary(`Avatar:\nPro:\nCon:\n\nYou:\nPro:\nCon:`);
+    setHasFetchedDebateInit(false);
+
+    // Optional: prevent auto-scroll jump on this reset
+    firstRender.current = true;
+  }, [selectedAvatarId]);
+
 
   useEffect(() => {
     if (firstRender.current) {

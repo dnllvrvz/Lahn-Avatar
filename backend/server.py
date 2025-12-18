@@ -7,7 +7,7 @@ from datetime import datetime
 from llama_index.core.tools.query_engine import QueryEngineTool
 
 from utils.utils import fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, prepare_query_engines, build_or_load_index, transcribe_audio, pcm_to_wav_bytes, format_history_as_string
-from utils.avatar_setup import avatars_path, avatar_llms, avatar_rag_tools, llm_choice, sensor_query_tool
+from utils.avatar_setup import avatars_path, avatar_llms, avatar_rag_tools, llm_choice, text_query_llm, sensor_query_tool
 from utils.processing_pipelines import OpenAIRealtimeClient 
 
 import os,threading
@@ -93,7 +93,7 @@ def chat():
     print('Obtaining information for the LLM...')
 
     # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
-    text_index_query = fetch_text_index_query(conversation)
+    text_index_query = fetch_text_index_query(text_query_llm, conversation)
     context = RAG(avatar_rag_tools, text_index_query, translated=True) #query, text_index_query = text_index_query)
 
     total_context = context 

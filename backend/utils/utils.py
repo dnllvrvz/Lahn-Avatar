@@ -674,8 +674,7 @@ def prepare_query_engines(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refres
 
 
 
-def fetch_text_index_query(conversation):
-    global text_query_llm
+def fetch_text_index_query(text_query_llm, conversation):
     print('Fetching context from text index...')
     query_prompt = 'Here is the conversation: ' + format_history_as_string(conversation) #+ '\nUser: '+prompt #response[:response.find('")')]
     # print('Query prompt: ', query_prompt)

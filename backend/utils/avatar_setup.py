@@ -10,7 +10,7 @@ API_KEY = os.getenv("OPENAI_API_KEY") #("GWDG_API_KEY")
 API_BASE = None #os.getenv("GWDG_API_BASE")
 
 
-llm_choice = 'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
+llm_choice = 'gpt-4.1-mini' #'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
 
 def generate_avatars_config():
 	global avatars_path, avatar_llms, avatar_rag_tools

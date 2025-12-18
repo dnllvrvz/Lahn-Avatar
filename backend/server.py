@@ -7,7 +7,7 @@ from datetime import datetime
 from llama_index.core.tools.query_engine import QueryEngineTool
 
 from utils.utils import fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, prepare_query_engines, build_or_load_index, transcribe_audio, pcm_to_wav_bytes, format_history_as_string
-from utils.avatar_setup import avatar_llms, avatar_rag_tools, llm_choice, sensor_query_tool
+from utils.avatar_setup import avatars_path, avatar_llms, avatar_rag_tools, llm_choice, sensor_query_tool
 from utils.processing_pipelines import OpenAIRealtimeClient 
 
 import os,threading

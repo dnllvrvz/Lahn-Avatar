@@ -1,6 +1,6 @@
 import json
 from .llm_tooling import LLM
-from utils import prepare_query_engines
+from .utils import prepare_query_engines, LahnSensorsTool
 
 
 
@@ -44,6 +44,9 @@ sensor_query_llm, _ = LLM(
                     openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
                     system_prompt="Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :",
                 )
+
+sensor_query_tool = LahnSensorsTool(sensor_query_llm)
+
 
 # get_llm('gwdg', 'mistral-large-instruct', system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
 # mistral-large-instruct qwen2.5-coder-32b-instruct

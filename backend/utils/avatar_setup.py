@@ -8,7 +8,7 @@ llm_choice = 'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
 
 
 # In-memory storage (replace with DB later if you like)
-avatars_path = '../avatars.json'
+avatars_path = 'avatars.json'
 avatars = json.load(open(avatars_path, 'r'))
 
 avatar_llms = {}

@@ -657,9 +657,9 @@ def build_or_load_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refresh=
 
 def prepare_query_engines(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refresh=False):
     if refresh==True:
-        vector_index, text_index, chunks = build_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID)
+        vector_index, text_index, chunks = build_index(avatar_id, drive_folder_id)
     else:
-        vector_index, text_index, chunks = build_or_load_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID)
+        vector_index, text_index, chunks = build_or_load_index(avatar_id, drive_folder_id)
 
     # query_llm = get_llm('gwdg', "mistral-large-instruct", system_prompt= 'Provide an accurate response to the given query:')
     vector_index_query_engine = vector_index.as_retriever(similarity_top_k=5, verbose=True)

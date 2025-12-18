@@ -23,6 +23,7 @@ def generate_avatars_config():
 
 	for avatar in avatars:
 	    avatar_id = avatar['id']
+	    print('\nWorking on Avatar: ', avatar_id)
 	    avatar_llms[avatar_id] = LLM(
 	                        provider="openai",
 	                        openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
@@ -30,7 +31,7 @@ def generate_avatars_config():
 	                        system_prompt= open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read() 
 
 	                    )
-	    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar['id'], drive_folder_id=avatar['driveFolderId'])
+	    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar['driveFolderId'])
 
 	return avatar_llms, avatar_rag_tools
 

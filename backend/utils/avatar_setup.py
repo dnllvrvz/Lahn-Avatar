@@ -12,25 +12,29 @@ API_BASE = None #os.getenv("GWDG_API_BASE")
 
 llm_choice = 'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
 
+def generate_avatars_config():
+	# In-memory storage (replace with DB later if you like)
+	avatars_path = 'avatars.json'
+	avatars = json.load(open(avatars_path, 'r'))
 
-# In-memory storage (replace with DB later if you like)
-avatars_path = 'avatars.json'
-avatars = json.load(open(avatars_path, 'r'))
+	avatar_llms = {}
+	avatar_rag_tools = {}
 
-avatar_llms = {}
-avatar_rag_tools = {}
+	for avatar in avatars:
+	    avatar_id = avatar['id']
+	    avatar_llms[avatar_id] = LLM(
+	                        provider="openai",
+	                        openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
+	                        openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
+	                        system_prompt= open('avatars_context/'+avatar_id+'/prompt','r').read() 
 
-for avatar in avatars:
-    avatar_id = avatar['id']
-    avatar_llms[avatar_id] = LLM(
-                        provider="openai",
-                        openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
-                        openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
-                        system_prompt= open('avatars_context/'+avatar_id+'/prompt','r').read() 
+	                    )
+	    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar['id'], drive_folder_id=avatar['driveFolderId'])
 
-                    )
-    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar['id'], drive_folder_id=avatar['driveFolderId'])
+	return avatar_llms, avatar_rag_tools
 
+
+avatar_llms, avatar_rag_tools = generate_avatars_config()
 
 # vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
 

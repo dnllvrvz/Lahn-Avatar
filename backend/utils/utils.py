@@ -552,7 +552,7 @@ def build_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID):
     download_drive_folder(DRIVE_FOLDER_ID, data_dir)
     convert_docx_to_txt_and_cleanup(data_dir)
 
-    print('Creating Context store from data sources...')
+    print('\n\nCreating Context store from data sources...')
 
     if len(os.listdir(data_dir))>0:
         documents = SimpleDirectoryReader(data_dir, recursive=True).load_data()

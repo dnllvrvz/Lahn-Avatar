@@ -381,6 +381,7 @@ avatars_bp = Blueprint("avatars", __name__)
 
 @avatars_bp.route("/api/avatars", methods=["GET", "POST"])
 def avatars_collection():
+    global avatar_llms, avatar_rag_tools
     """
     GET  /api/avatars  -> list all avatars
     POST /api/avatars  -> create a new avatar
@@ -440,6 +441,7 @@ def avatars_collection():
     avatars.append(avatar)
     print('Avatars after modification: ', avatars)
     json.dump(avatars, open(avatars_path, 'w'))
+    avatar_llms, avatar_rag_tools = generate_avatars_config()
     # Frontend expects the created avatar object back
     return jsonify(avatar), 201
 

@@ -337,7 +337,7 @@ sock = Sock(app)
 def stream(ws):
     print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nStreaming Voice Chat request received.')
 
-    systemp_prompt = avatar_llms['0'].system_prompt
+    system_prompt = avatar_llms['0'].system_prompt
     #Do away with function-related instructions, for now.
     index = system_prompt.find('You also have access to sensory data')
     system_prompt_ = system_prompt[:index]

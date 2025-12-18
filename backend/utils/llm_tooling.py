@@ -91,7 +91,15 @@ class LLM(CustomLLM):
 
         url = f"{self.gwdg_api_base.rstrip('/')}/chat/completions"
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            try:
+                err = resp.json()
+            except Exception:
+                err = {"raw": resp.text[:500]}
+
+            raise RuntimeError(
+                f"{self.provider.upper()} API error {resp.status_code}: {err}"
+            )
         content = resp.json()["choices"][0]["message"]["content"]
         return CompletionResponse(text=content)
 
@@ -112,7 +120,18 @@ class LLM(CustomLLM):
 
         url = f"{self.openai_api_base.rstrip('/')}/chat/completions"
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
+        
+        if resp.status_code >= 400:
+            try:
+                err = resp.json()
+            except Exception:
+                err = {"raw": resp.text[:500]}
+
+            raise RuntimeError(
+                f"{self.provider.upper()} API error {resp.status_code}: {err}"
+            )
+
+
         content = resp.json()["choices"][0]["message"]["content"]
         return CompletionResponse(text=content)
 

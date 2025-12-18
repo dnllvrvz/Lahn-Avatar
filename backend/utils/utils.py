@@ -656,7 +656,10 @@ def build_or_load_index(avatar_id, drive_folder_id, refresh=False):
 
 
 
-def prepare_query_engines(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refresh=False):
+def prepare_query_engines(avatar_id, drive_folder_id, refresh=False):
+    if drive_folder_id == None:
+        return None, None, None, None
+
     if refresh==True:
         vector_index, text_index, chunks = build_index(avatar_id, drive_folder_id)
     else:

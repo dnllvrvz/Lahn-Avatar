@@ -19,7 +19,7 @@ from .avatar_setup import sensor_query_tool
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
     
-    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt='', streaming=False, ws_client=None):
+    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt='', rag_tools=None, streaming=False, ws_client=None):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
@@ -41,7 +41,7 @@ class OpenAIRealtimeClient:
         self.current_response_has_function_call = False
 
         self.prompt = prompt #+ '\n Note: Always reply in the same language as the user. The language you speak, should mirror theirs. No language-choice inconsistencies. For example if the user messaged you in English, reply in English as well. Same for German, Portuguese etc.'
-
+        self.rag_tools = rag_tools
         self.streaming = streaming
         self.ws_client = ws_client
         self.ws_thread = None
@@ -355,7 +355,7 @@ class OpenAIRealtimeClient:
     def _get_info_about_lahn(self, query: str):
         print('Function called: _get_info_about_lahn(). Query: ', query)
         print('Activating RAG...')
-        context = RAG(query)
+        context = RAG(rag_tools, query)
 
         return context
 

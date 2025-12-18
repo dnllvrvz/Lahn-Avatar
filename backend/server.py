@@ -342,7 +342,7 @@ def stream(ws):
     index = system_prompt.find('You also have access to sensory data')
     system_prompt_ = system_prompt[:index]
 
-    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, streaming=True, ws_client = ws)
+    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, rag_tools = avatar_rag_tools['0'], streaming=True, ws_client = ws)
     client.connect_to_openai()
     
     #  gpt-4o-realtime-preview

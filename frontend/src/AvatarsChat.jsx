@@ -534,10 +534,12 @@ export default function MultiAvatarChat() {
                 </Button>
                 <Button type="submit" disabled={avatarSaving}>
                   {avatarSaving
-                    ? "Saving..."
+                    ? avatarFormMode === "create"
+                      ? "Saving... (Might take a few minutes to prepare your context data)"
+                      : "Saving..."
                     : avatarFormMode === "create"
-                    ? "Create"
-                    : "Save changes"}
+                      ? "Create"
+                      : "Save changes"}
                 </Button>
               </div>
             </form>

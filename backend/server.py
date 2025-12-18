@@ -6,9 +6,9 @@ from datetime import datetime
 
 from llama_index.core.tools.query_engine import QueryEngineTool
 
-from utils.avatar import llm_choice, get_llm, fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines, build_or_load_index #, build_index, , search_text_index
-from utils.utils import transcribe_audio, LahnSensorsTool, pcm_to_wav_bytes, format_history_as_string #, azure_speech_response_func,
-from utils.processing_pipelines import OpenAIRealtimeClient #, CartesiaOpenAIPipeline
+from utils.utils import fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, sensor_query_llm, prepare_query_engines, build_or_load_index, transcribe_audio, sensor_query_tool, pcm_to_wav_bytes, format_history_as_string
+from utils.avatar_setup import avatar_llms, avatar_rag_tools, llm_choice
+from utils.processing_pipelines import OpenAIRealtimeClient 
 
 import os,threading
 
@@ -19,14 +19,12 @@ CORS(app, supports_credentials=True)
 UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# === Load LLM once at startup ===
-# llm_choice = utils.avatar.llm_choice #'mistral-large-instruct' #"gemma-3-27b-it" #"hrz-chat-small" #'mistral-large-instruct' #"hrz-chat-small" #"deepseek-r1-distill-llama-70b" #gemma-3-27b-it" #"hrz-chat-small" #"gemma-3-27b-it" #"mistral-large-instruct" #"hrz-chat-small"
-# llm_second_choice = "hrz-chat-small"
 
-llm, system_prompt = get_llm('openai', llm_choice) #Could just use one format, for consistency, since they're essentially the same thing. THis has llm.chat.completions.create around line 119. Doesnt work with gwdg format
 
-debate_summary_llm, _= get_llm('gwdg', "mistral-large-instruct", system_prompt= '')
-print('LLM initialized.')
+
+
+
+
 
 sensor_query_tool = LahnSensorsTool(sensor_query_llm)
 
@@ -49,33 +47,35 @@ def refresh_embeddings():
     vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines(refresh=True)
     return 'Done'
 
-debate_general_prompt = "Right now you are on a deliberation-centered platform, debating with the user the topic of '{topic}'. In this mode you should always consider the best interests of the Lahn River. You must decide what the Lahn’s best interests are based on all of your context information. You are the Lahn’s advocate right now. Below is a brief description of the topic, which both you and the user have access to. You can present your position to the user as you answer questions they might have on the topic. '{description}'"
-topic_descriptions = {
-    'The Lahn should have legal personhood': "In recent years, rivers around the world have been granted legal personhood to recognize their intrinsic rights and protect their ecosystems. Granting the Lahn legal personhood would mean treating the river not merely as a resource but as a living entity with legal standing - analogous to the legal standing that a person or corporation holds. This shift could reshape how environmental protection is approached in the region, allowing for the river's interests to be formally represented in legal and political systems. And even create precedent for the river suing a company or the government, for example.",
-    'The Lahn should be able to own property': "If the Lahn were recognized as a legal person, it could theoretically hold property titles. This would allow the river to directly control land essential to its health—such as floodplains, wetlands, or riverbanks—ensuring its ecological integrity is not compromised by conflicting human interests. Property ownership could become a tool for the river to safeguard its own regeneration and future.",
-    'There should exist a “Lahn Fund”': "A dedicated “Lahn Fund” would serve as a financial mechanism to support the ongoing protection, restoration, and stewardship of the river. This fund could receive public and private contributions, fines from environmental damages, or a share of local economic activities that depend on the river. Managed in the river’s interest, the fund could finance ecological research, conservation projects, community engagement, and support the operational costs of the Avatar or legal guardianship system.",
-    'The Avatar should be able to legally speak on behalf of the Lahn': "The Lahn Avatar is envisioned as a voice for the river—an interface between natural and human systems. Allowing the Avatar to legally speak on behalf of the Lahn would formalize its role as a representative entity in decision-making processes. This could enable the river’s interests to be expressed in public hearings, governmental deliberations, and community forums, fostering a new model of ecological democracy and interspecies governance."
-  }
+# debate_general_prompt = "Right now you are on a deliberation-centered platform, debating with the user the topic of '{topic}'. In this mode you should always consider the best interests of the Lahn River. You must decide what the Lahn’s best interests are based on all of your context information. You are the Lahn’s advocate right now. Below is a brief description of the topic, which both you and the user have access to. You can present your position to the user as you answer questions they might have on the topic. '{description}'"
+# topic_descriptions = {
+#     'The Lahn should have legal personhood': "In recent years, rivers around the world have been granted legal personhood to recognize their intrinsic rights and protect their ecosystems. Granting the Lahn legal personhood would mean treating the river not merely as a resource but as a living entity with legal standing - analogous to the legal standing that a person or corporation holds. This shift could reshape how environmental protection is approached in the region, allowing for the river's interests to be formally represented in legal and political systems. And even create precedent for the river suing a company or the government, for example.",
+#     'The Lahn should be able to own property': "If the Lahn were recognized as a legal person, it could theoretically hold property titles. This would allow the river to directly control land essential to its health—such as floodplains, wetlands, or riverbanks—ensuring its ecological integrity is not compromised by conflicting human interests. Property ownership could become a tool for the river to safeguard its own regeneration and future.",
+#     'There should exist a “Lahn Fund”': "A dedicated “Lahn Fund” would serve as a financial mechanism to support the ongoing protection, restoration, and stewardship of the river. This fund could receive public and private contributions, fines from environmental damages, or a share of local economic activities that depend on the river. Managed in the river’s interest, the fund could finance ecological research, conservation projects, community engagement, and support the operational costs of the Avatar or legal guardianship system.",
+#     'The Avatar should be able to legally speak on behalf of the Lahn': "The Lahn Avatar is envisioned as a voice for the river—an interface between natural and human systems. Allowing the Avatar to legally speak on behalf of the Lahn would formalize its role as a representative entity in decision-making processes. This could enable the river’s interests to be expressed in public hearings, governmental deliberations, and community forums, fostering a new model of ecological democracy and interspecies governance."
+#   }
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    global llm, llm_choice, system_prompt
+    # global llm, llm_choice, system_prompt
     print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received.')
-    avatar = request.args.get("avatar")
+    avatar_id = request.args.get("avatar", "0")
+
+    system_prompt = avatar_llms[avatar_id].system_prompt
 
     data = request.get_json()
     prompt = data.get("prompt", "")
     conversation = data.get("history", "")
     print('Conversation history: ', conversation)
     topic = data.get("topic", None)
-    if topic:
-        print(f"→ Debate topic: {topic}")
-        debate_prompt = debate_general_prompt.format(topic=topic, description=topic_descriptions[topic])
-        # print('Prompt: ', debate_prompt)
-        system_prompt_= system_prompt+ '\n' + debate_prompt
-    else:
-        system_prompt_ = system_prompt
+    # if topic:
+    #     print(f"→ Debate topic: {topic}")
+    #     debate_prompt = debate_general_prompt.format(topic=topic, description=topic_descriptions[topic])
+    #     # print('Prompt: ', debate_prompt)
+    #     system_prompt_= system_prompt+ '\n' + debate_prompt
+    # else:
+    system_prompt_ = system_prompt
 
 
     chat_history = []
@@ -94,7 +94,7 @@ def chat():
 
     # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
     text_index_query = fetch_text_index_query(conversation)
-    context = RAG(text_index_query, translated=True) #query, text_index_query = text_index_query)
+    context = RAG(avatar_rag_tools, text_index_query, translated=True) #query, text_index_query = text_index_query)
 
     total_context = context 
     # messages_to_send = chat_history+[{'role':'assistant', 'content':'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user\'s last message in? Make sure to respond in the same language.): '+total_context + ' . You can call analyze_sensor_data() if environmental data readings are relevant to the user\'s query.'}]
@@ -370,22 +370,6 @@ def stream(ws):
 
 
 
-
-@sock.route('/api/test')
-def test_stream(ws):
-    print("✅ WebSocket connected")
-    while True:
-        data = ws.receive()
-        if data is None:
-            break
-        print("Got:", data)
-        ws.send(f"Echo: {data}")
-
-
-
-
-
-
 #Multi-Avatar Management
 
 
@@ -393,9 +377,6 @@ def test_stream(ws):
 from flask import Blueprint, request, jsonify
 
 avatars_bp = Blueprint("avatars", __name__)
-
-# In-memory storage (replace with DB later if you like)
-avatars_path = 'avatars.json'
 
 
 @avatars_bp.route("/api/avatars", methods=["GET", "POST"])
@@ -442,7 +423,8 @@ def avatars_collection():
     if context_docs_url != '':
         drive_folder_id = context_docs_url.split("/folders/")[1].split("?")[0]
         print('Building Index for Avatar: '+ next_id)
-        threading.Thread(target=build_or_load_index, kwargs={"avatar_id": next_id, "drive_folder_id": drive_folder_id}).start()
+        # threading.Thread(target=build_or_load_index, kwargs={"avatar_id": next_id, "drive_folder_id": drive_folder_id}).start()
+        results = build_or_load_index(next_id, drive_folder_id)
     else:
         drive_folder_id = None
 
@@ -451,6 +433,7 @@ def avatars_collection():
         "name": name,
         "systemPromptUrl": system_prompt_url,
         "contextDocsUrl": context_docs_url,
+        "driveFolderId": drive_folder_id,
         "sensorApiUrl": sensor_api_url,
     }
 

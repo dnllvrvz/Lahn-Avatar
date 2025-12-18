@@ -315,6 +315,7 @@ export default function MultiAvatarChat() {
               <div><span className="font-semibold">Prompt:</span> {selectedAvatar.systemPromptUrl || "—"}</div>
               <div><span className="font-semibold">Context:</span> {selectedAvatar.contextDocsUrl || "—"}</div>
               <div><span className="font-semibold">Sensors:</span> {selectedAvatar.sensorApiUrl || "—"}</div>
+              <div><span className="font-semibold">API:</span> https://lahn-avatar.uni-giessen.de/api/chat?avatar={selectedAvatar.id}</div>
             </div>
           )}
           {!selectedAvatar && (

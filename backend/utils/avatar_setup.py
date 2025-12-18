@@ -1,4 +1,4 @@
-import json
+import os, json
 from dotenv import load_dotenv
 
 from .llm_tooling import LLM

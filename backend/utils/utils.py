@@ -14,7 +14,6 @@ import langid
 import torch
 import torchaudio
 
-from dotenv import load_dotenv
 from docx import Document
 from openai import OpenAI
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -34,13 +33,9 @@ from llama_index.readers.web import SimpleWebPageReader
 
 
 
-load_dotenv()
-
-
 # === CONFIG ===
 DRIVE_FOLDER_ID = "1vT4UTYHeFxS5Vy2u_OfQyQ6cQ-cP5Ywd"
-API_KEY = os.getenv("OPENAI_API_KEY") #("GWDG_API_KEY") 
-API_BASE = None #os.getenv("GWDG_API_BASE")
+
 
 # base_dir = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "./data" #os.path.join(base_dir, "/data")
@@ -531,10 +526,6 @@ def transcribe_audio(file_path):
     transcription = whisper_processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
     return transcription
 
-
-
-
-load_dotenv()
 
 
 

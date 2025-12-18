@@ -1,7 +1,13 @@
 import json
+from dotenv import load_dotenv
+
 from .llm_tooling import LLM
 from .utils import prepare_query_engines, LahnSensorsTool
 
+
+load_dotenv()
+API_KEY = os.getenv("OPENAI_API_KEY") #("GWDG_API_KEY") 
+API_BASE = None #os.getenv("GWDG_API_BASE")
 
 
 llm_choice = 'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"

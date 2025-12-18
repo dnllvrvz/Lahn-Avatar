@@ -26,7 +26,7 @@ for avatar in avatars:
                         provider="openai",
                         openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
                         openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
-                        system_prompt= open('../avatars_context/'+avatar_id+'/prompt','r').read() 
+                        system_prompt= open('avatars_context/'+avatar_id+'/prompt','r').read() 
 
                     )
     avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar['id'], drive_folder_id=avatar['driveFolderId'])

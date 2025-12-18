@@ -52,7 +52,8 @@ def download_drive_folder(folder_id, output_dir="./data"):
     subprocess.run(cmd, shell=True)
 
 
-def fetch_system_prompt_from_gdoc(avatar_id='0', system_prompt_url="https://docs.google.com/document/d/1NYOOy8KkaLDBwvHvEVg1hVDY5yvHeLACUpCEkJVM8Kw/export?format=txt" ):
+# ="https://docs.google.com/document/d/1NYOOy8KkaLDBwvHvEVg1hVDY5yvHeLACUpCEkJVM8Kw/export?format=txt"
+def fetch_system_prompt_from_gdoc(avatar_id, system_prompt_url):
     print(' Updating system prompt for avatar: ' + avatar_id + '...')
     prompt_dir = 'avatars_context/' + avatar_id+'/prompt/'
     os.makedirs(prompt_dir, exist_ok=True)
@@ -538,7 +539,7 @@ def transcribe_audio(file_path):
 #RAG related
 
 
-def build_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID):
+def build_index(avatar_id, drive_folder_id):
     index_dir = 'avatars_context/' + avatar_id+'/index'
     data_dir = 'avatars_context/' + avatar_id+'/data'
 
@@ -620,7 +621,7 @@ def build_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID):
 
 
 
-def build_or_load_index(avatar_id='0', drive_folder_id=DRIVE_FOLDER_ID, refresh=False):
+def build_or_load_index(avatar_id, drive_folder_id, refresh=False):
     Settings.embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     index_dir = 'avatars_context/' + avatar_id+'/index'
     data_dir = 'avatars_context/' + avatar_id+'/data'

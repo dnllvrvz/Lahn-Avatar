@@ -423,6 +423,7 @@ def avatars_collection():
     else:
         drive_folder_id = None
 
+
     avatar = {
         "id": next_id,
         "name": name,

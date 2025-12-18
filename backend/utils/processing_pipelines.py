@@ -355,7 +355,7 @@ class OpenAIRealtimeClient:
     def _get_info_about_lahn(self, query: str):
         print('Function called: _get_info_about_lahn(). Query: ', query)
         print('Activating RAG...')
-        context = RAG(rag_tools, query)
+        context = RAG(self.rag_tools, query)
 
         return context
 

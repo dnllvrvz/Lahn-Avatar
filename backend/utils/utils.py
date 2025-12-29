@@ -5,6 +5,11 @@ from typing import Any, List
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor, wait
 
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import json
+
 # ---------- third-party ----------
 import requests
 import pandas as pd
@@ -46,11 +51,93 @@ STORAGE_DIR = "./lahn_index"#os.path.join(base_dir, "/lahn_index")
 
 
 def download_drive_folder(folder_id, output_dir="./data"):
-    print('Running download_drive_folder function...')
+    print('Running download_drive_folder function using Google Drive API...')
     os.makedirs(output_dir, exist_ok=True)
-    cmd = f"gdown --folder https://drive.google.com/drive/folders/{folder_id} -O {output_dir}"
-    subprocess.run(cmd, shell=True)
+    drive_service = _build_drive_service()
+    if not drive_service:
+        print("Failed to initialize Google Drive service. Aborting download.")
+        return
 
+    def _download_recursive(current_folder_id, current_output_path):
+        page_token = None
+        while True:
+            # List files and folders in the current Google Drive folder
+            response = drive_service.files().list(
+                q=f"'{current_folder_id}' in parents and trashed=false",
+                fields="nextPageToken, files(id, name, mimeType)",
+                pageToken=page_token
+            ).execute()
+
+            for item in response.get('files', []):
+                file_id = item['id']
+                file_name = item['name']
+                mime_type = item['mimeType']
+                output_file_path = os.path.join(current_output_path, file_name)
+
+                if mime_type == GDRIVE_FOLDER_MIMETYPE:
+                    # If it's a folder, create local directory and recurse
+                    os.makedirs(output_file_path, exist_ok=True)
+                    print(f"Created local folder: {output_file_path}")
+                    _download_recursive(file_id, output_file_path)
+                else:
+                    # It's a file, download it
+                    print(f"Downloading file: {file_name} (ID: {file_id}) to {current_output_path}")
+                    try:
+                        request = None
+                        if mime_type == GDOCS_MIMETYPE:
+                            # Google Docs export as plain text
+                            request = drive_service.files().export_media(fileId=file_id, mimeType='text/plain')
+                            output_file_path += ".txt" # Ensure it has a .txt extension
+                        elif mime_type == GSHEETS_MIMETYPE:
+                            # Google Sheets export as CSV
+                            request = drive_service.files().export_media(fileId=file_id, mimeType='text/csv')
+                            output_file_path += ".csv" # Ensure it has a .csv extension
+                        elif mime_type == GPTS_MIMETYPE:
+                            # Google Slides export as PDF
+                            request = drive_service.files().export_media(fileId=file_id, mimeType='application/pdf')
+                            output_file_path += ".pdf" # Ensure it has a .pdf extension
+                        else:
+                            # Regular file download
+                            request = drive_service.files().get_media(fileId=file_id)
+
+                        if request:
+                            with open(output_file_path, 'wb') as fh:
+                                downloader = MediaIoBaseDownload(fh, request)
+                                done = False
+                                while done is False:
+                                    status, done = downloader.next_chunk()
+                                    # print(f"Download progress for {file_name}: {int(status.progress() * 100)}%")
+                            print(f"Successfully downloaded: {output_file_path}")
+                        else:
+                            print(f"Skipping unknown MIME type for file: {file_name} ({mime_type})")
+                    except Exception as e:
+                        print(f"Error downloading {file_name}: {e}")
+
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+    
+    _download_recursive(folder_id, output_dir)
+    print('Google Drive API download complete.')
+
+
+GDOCS_MIMETYPE = "application/vnd.google-apps.document"
+GSHEETS_MIMETYPE = "application/vnd.google-apps.spreadsheet"
+GPTS_MIMETYPE = "application/vnd.google-apps.presentation"
+GDRIVE_FOLDER_MIMETYPE = "application/vnd.google-apps.folder"
+
+def _build_drive_service():
+    """Builds and returns a Google Drive API service object using service account credentials."""
+    SERVICE_ACCOUNT_FILE = 'backend/utils/.gdrive_service_account'
+    SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"Error building Drive service: {e}")
+        return None
 
 # ="https://docs.google.com/document/d/1NYOOy8KkaLDBwvHvEVg1hVDY5yvHeLACUpCEkJVM8Kw/export?format=txt"
 def fetch_system_prompt_from_gdoc(avatar_id, system_prompt_url):
@@ -557,6 +644,7 @@ def build_index(avatar_id, drive_folder_id):
 
     print('\n\nCreating Context store from data sources...')
 
+    documents = []
     if len(os.listdir(data_dir))>0:
         documents = SimpleDirectoryReader(data_dir, recursive=True).load_data()
         print(f"{len(documents)} documents loaded from {data_dir}")

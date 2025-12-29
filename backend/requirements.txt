@@ -1,12 +1,14 @@
 
-#LLM related
+google-auth
+google-api-python-client
+
 
 llama-index
 gdown
 openai
-dotenv
-PyMuPDF
-pypdf
+python-dotenv>=1.0.0
+#PyMuPDF
+#pypdf
 python-docx
 #sentence-transformers
 llama-index-embeddings-huggingface
@@ -41,10 +43,10 @@ flask_sock
 #speech-to-speech
 
 #soundfile
-#sounddevice 
-#websockets 
-#simpleaudio 
-#numpy 
+#sounddevice
+#websockets
+#simpleaudio
+#numpy
 #aiohttp
 
 

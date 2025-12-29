@@ -584,7 +584,7 @@ def build_index(avatar_id, drive_folder_id):
 
                 if doc:
                     filename = sanitize_filename(url)
-                    filepath = Path(DATA_DIR) / "General_News/scraped_texts" / filename
+                    filepath = Path(data_dir) / "General_News/scraped_texts" / filename
                     filepath.parent.mkdir(parents=True, exist_ok=True)
                     with open(filepath, "w", encoding="utf-8") as f:
                         f.write(doc.text)
@@ -594,17 +594,13 @@ def build_index(avatar_id, drive_folder_id):
 
     scraped_documents_path = Path(data_dir) / "General_News/scraped_texts"
     if  scraped_documents_path.exists() and len(os.listdir(str(scraped_documents_path)))>0:
-        scraped_documents = SimpleDirectoryReader(str(Path(DATA_DIR) / "General_News/scraped_texts")).load_data()
+        scraped_documents = SimpleDirectoryReader(str(scraped_documents_path)).load_data()
         documents += scraped_documents
 
     experiences_folder_path = Path(data_dir) / "uploaded_experiences/text"
-    # experiences_folder_is_empty = not os.listdir(str(Path(DATA_DIR) / "uploaded_experiences/text"))
-    if experiences_folder_path.exists() and len(os.listdir(str(experiences_folder_path)))>0:
-        new_uploads = SimpleDirectoryReader(str(Path(data_dir) / "uploaded_experiences"), recursive=True).load_data()
+    if experiences_folder_path.exists() and len(os.listdir(str(experiences_folder_path))) > 0:
+        new_uploads = SimpleDirectoryReader(str(experiences_folder_path), recursive=True).load_data()
         documents += new_uploads
-        #Why is this commented out? []
-        # user_experiences = SimpleDirectoryReader(str(Path(DATA_DIR) / "uploaded_experiences/text")).load_data()
-        # documents += user_experiences
 
     vector_index = VectorStoreIndex.from_documents(documents)
     vector_index.storage_context.persist(persist_dir=index_dir)

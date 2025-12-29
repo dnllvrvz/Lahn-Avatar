@@ -12,7 +12,7 @@ python-docx
 llama-index-embeddings-huggingface
 llama-index-readers-web
 llama-index-readers-youtube-transcript
-llama-index-llms-azure-openai
+#llama-index-llms-azure-openai
 llama-index-experimental
 #llama-index-llms-openai-like
 
@@ -25,7 +25,8 @@ langid
 spacy
 
 
-numpy==1.26.4
+numpy
+#==1.26.4
 
 
 

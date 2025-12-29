@@ -1,6 +1,7 @@
 __pycache__/
 
 lahn_env/
+backend/env/
 backups/
 
 .archive/
@@ -18,4 +19,4 @@ test/
 backend/.env
 backend/utils/.env
 
-avatars.json
+backend/avatars.json

@@ -2,7 +2,7 @@ import os, json
 from dotenv import load_dotenv
 
 from .llm_tooling import LLM
-from .utils import prepare_query_engines, LahnSensorsTool
+from .utils import prepare_query_engines, LahnSensorsTool, fetch_system_prompt_from_gdoc
 
 
 load_dotenv()
@@ -24,12 +24,18 @@ def generate_avatars_config():
 	for avatar in avatars:
 	    avatar_id = avatar['id']
 	    print('\nWorking on Avatar: ', avatar_id)
+	    try:
+	        system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
+	    except FileNotFoundError:
+	        print('System prompt not found for avatar ' + avatar_id + '. Fetching from G-Doc...')
+	        fetch_system_prompt_from_gdoc(avatar_id, avatar['systemPromptUrl'])
+	        system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
+
 	    avatar_llms[avatar_id] = LLM(
 	                        provider="openai",
 	                        openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
 	                        openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
-	                        system_prompt= open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read() 
-
+	                        system_prompt= system_prompt
 	                    )
 	    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar['driveFolderId'])
 

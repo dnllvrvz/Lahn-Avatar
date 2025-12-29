@@ -34,7 +34,7 @@ from llama_index.readers.web import SimpleWebPageReader
 
 
 # === CONFIG ===
-DRIVE_FOLDER_ID = "1vT4UTYHeFxS5Vy2u_OfQyQ6cQ-cP5Ywd"
+
 
 
 # base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -552,7 +552,7 @@ def build_index(avatar_id, drive_folder_id):
 
 
     print('\nRefreshing from Google Drive...')
-    download_drive_folder(DRIVE_FOLDER_ID, data_dir)
+    download_drive_folder(drive_folder_id, data_dir)
     convert_docx_to_txt_and_cleanup(data_dir)
 
     print('\n\nCreating Context store from data sources...')

@@ -465,7 +465,7 @@ def avatar_detail(avatar_id):
 
     print('Avatars after modification: ', avatars)
     json.dump(avatars, open(avatars_path, 'w'))
-
+    avatar_llms, avatar_rag_tools = generate_avatars_config()
     return jsonify(avatar), 200
 
 

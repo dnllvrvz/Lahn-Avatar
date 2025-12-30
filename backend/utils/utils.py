@@ -879,7 +879,7 @@ def RAG(avatar_rag_tools, query, translated=False):  # , text_index_query=None):
     )
 
     total_context = (
-        "Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the most relevant information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info. Also make sure to reply in the same language the user messaged you in -not necessarily the language in which this context is expressed. If the user messaged you in English, reply in English as well, even if this context is in German. If the user messaged you in German, respond in German, if it was Portuguese, respond in Portuguese, etc."
+        "Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the most relevant information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info. Also make sure to reply in the same language the user messaged you in -not necessarily the language in which this context is expressed. If the user messaged you in English, reply in English as well, even if this context is in German. If the user messaged you in German, respond in German, if it was Portuguese, respond in Portuguese, etc."
         + total_context
     )
 

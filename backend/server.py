@@ -1,16 +1,33 @@
-from flask import Flask, request, jsonify, send_file, make_response, Response
-from flask_cors import CORS
-from werkzeug.utils import secure_filename
-import os, io, asyncio
+import asyncio
+import io
+import os
+import threading
 from datetime import datetime
 
+from flask import Flask, Response, jsonify, make_response, request, send_file
+from flask_cors import CORS
 from llama_index.core.tools.query_engine import QueryEngineTool
-
-from utils.utils import fetch_system_prompt_from_gdoc, fetch_text_index_query, RAG, prepare_query_engines, build_or_load_index, transcribe_audio, pcm_to_wav_bytes, format_history_as_string
-from utils.avatar_setup import avatars_path, avatar_llms, avatar_rag_tools, generate_avatars_config, llm_choice, text_query_llm, sensor_query_tool
-from utils.processing_pipelines import OpenAIRealtimeClient 
-
-import os,threading
+from utils.avatar_setup import (
+    avatar_llms,
+    avatar_rag_tools,
+    avatars_path,
+    generate_avatars_config,
+    llm_choice,
+    sensor_query_tool,
+    text_query_llm,
+)
+from utils.processing_pipelines import OpenAIRealtimeClient
+from utils.utils import (
+    RAG,
+    build_or_load_index,
+    fetch_system_prompt_from_gdoc,
+    fetch_text_index_query,
+    format_history_as_string,
+    pcm_to_wav_bytes,
+    prepare_query_engines,
+    transcribe_audio,
+)
+from werkzeug.utils import secure_filename
 
 # === Initialize Flask ===
 app = Flask(__name__)
@@ -20,23 +37,24 @@ UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-
 @app.route("/api/refresh-prompt", methods=["POST"])
 def refresh_prompt():
     global system_prompt, llm
-    print('Refresh prompt request received.')
+    print("Refresh prompt request received.")
     fetch_system_prompt_from_gdoc()
-    llm,  system_prompt = get_llm('openai', llm_choice)
-    return 'Done.'
-
+    llm, system_prompt = get_llm("openai", llm_choice)
+    return "Done."
 
 
 @app.route("/api/refresh-embeddings", methods=["POST"])
 def refresh_embeddings():
     global vector_index_query_engine, text_index_query_engine, text_index, chunks
-    print('Refresh embeddings request received.')
-    vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines(refresh=True)
-    return 'Done'
+    print("Refresh embeddings request received.")
+    vector_index_query_engine, text_index_query_engine, text_index, chunks = (
+        prepare_query_engines(refresh=True)
+    )
+    return "Done"
+
 
 # debate_general_prompt = "Right now you are on a deliberation-centered platform, debating with the user the topic of '{topic}'. In this mode you should always consider the best interests of the Lahn River. You must decide what the Lahn’s best interests are based on all of your context information. You are the Lahn’s advocate right now. Below is a brief description of the topic, which both you and the user have access to. You can present your position to the user as you answer questions they might have on the topic. '{description}'"
 # topic_descriptions = {
@@ -50,7 +68,9 @@ def refresh_embeddings():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     # global llm, llm_choice, system_prompt
-    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received.')
+    print(
+        "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received."
+    )
     avatar_id = request.args.get("avatar", "0")
 
     system_prompt = avatar_llms[avatar_id].system_prompt
@@ -58,7 +78,7 @@ def chat():
     data = request.get_json()
     prompt = data.get("prompt", "")
     conversation = data.get("history", "")
-    print('Conversation history: ', conversation)
+    print("Conversation history: ", conversation)
     topic = data.get("topic", None)
     # if topic:
     #     print(f"→ Debate topic: {topic}")
@@ -68,86 +88,100 @@ def chat():
     # else:
     system_prompt_ = system_prompt
 
-
     chat_history = []
 
     chat_history = [
-        {'role':"user" if m["sender"].lower() == "user" else "assistant", 'content':m["text"]}
+        {
+            "role": "user" if m["sender"].lower() == "user" else "assistant",
+            "content": m["text"],
+        }
         for m in conversation
-        ]
+    ]
 
     if len(chat_history) == 0:
-        return jsonify({"error": 'Invalid request format. Ensure your payload has "history" in the format [{"sender": "User", "text": "content"}, ...]'})
+        return jsonify(
+            {
+                "error": 'Invalid request format. Ensure your payload has "history" in the format [{"sender": "User", "text": "content"}, ...]'
+            }
+        )
 
-    chat_history.insert(0, {'role':'system', 'content':system_prompt_})
-
+    chat_history.insert(0, {"role": "system", "content": system_prompt_})
 
     if avatar_rag_tools[avatar_id] != [None, None, None, None]:
-
-        print('Obtaining information for the LLM...')
+        print("Obtaining information for the LLM...")
         # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
         text_index_query = fetch_text_index_query(text_query_llm, conversation)
-        context = RAG(avatar_rag_tools[avatar_id], text_index_query, translated=True) #query, text_index_query = text_index_query)
+        context = RAG(
+            avatar_rag_tools[avatar_id], text_index_query, translated=True
+        )  # query, text_index_query = text_index_query)
 
-        total_context = context 
+        total_context = context
         # messages_to_send = chat_history+[{'role':'assistant', 'content':'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user\'s last message in? Make sure to respond in the same language.): '+total_context + ' . You can call analyze_sensor_data() if environmental data readings are relevant to the user\'s query.'}]
-        chat_history[-1]['content'] += 'Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user\'s last message in? Make sure to respond in the same language.): '+total_context + ' . You can call analyze_sensor_data() if environmental data readings are relevant to the user\'s query.'
-    
+        chat_history[-1]["content"] += (
+            " Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.): "
+            + total_context
+            + " . You can call analyze_sensor_data() if environmental data readings are relevant to the user's query."
+        )
+
     messages_to_send = chat_history
     print("\n\nMessages to send: ", messages_to_send)
 
     llm = avatar_llms[avatar_id]
 
     chat_completion = llm.complete(
-          messages_to_send,
-          # model= llm_choice,
-          # temperature=0.1
-          # top_p=0.7
-      )
+        messages_to_send,
+        # model= llm_choice,
+        # temperature=0.1
+        # top_p=0.7
+    )
 
     response = chat_completion.text
 
-    print('\nAvatar response: ', response)
+    print("\nAvatar response: ", response)
 
-
-    if 'analyze_sensor_data' in response:
-        print('Analyzing sensor data...')
-        response = response[response.find('user_query="')+12:]
-        query = response[:response.find('")')]
-        print('Query: ', query)
+    if "analyze_sensor_data" in response:
+        print("Analyzing sensor data...")
+        response = response[response.find('user_query="') + 12 :]
+        query = response[: response.find('")')]
+        print("Query: ", query)
         # analysis = str(api_tool(query))
         analysis = str(sensor_query_tool(query))
-        print('Analysis: ', analysis)
-        results = '\nHere is the output of analyze_sensor_data(): '+analysis +' Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user\'s last message in? Make sure to respond in the same language.'
+        print("Analysis: ", analysis)
+        results = (
+            "\nHere is the output of analyze_sensor_data(): "
+            + analysis
+            + " Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user's last message in? Make sure to respond in the same language."
+        )
 
-    # if len(results)>0:
-        print('Passing analysis results to LLM..') #: ', chat_history+[{'role':'system', 'content':results}])
+        # if len(results)>0:
+        print(
+            "Passing analysis results to LLM.."
+        )  #: ', chat_history+[{'role':'system', 'content':results}])
         chat_completion_2 = llm.complete(
-              chat_history+[{'role':'assistant', 'content':results}],
-              # model= llm_choice,
-              # top_p=0.8
-          )
+            chat_history + [{"role": "assistant", "content": results}],
+            # model= llm_choice,
+            # top_p=0.8
+        )
 
         response_2 = chat_completion_2.text
-        if 'analyze_sensor_data' in response_2:
-            print('Duplicate function call for some reason')
+        if "analyze_sensor_data" in response_2:
+            print("Duplicate function call for some reason")
             response_2 = analysis
 
-        response_2 = response_2.replace('*','')
+        response_2 = response_2.replace("*", "")
 
-        print('Avatar response after getting sensor data:', response_2)
+        print("Avatar response after getting sensor data:", response_2)
 
         return jsonify({"reply": response_2})
 
-    response = response.replace('*','')
+    response = response.replace("*", "")
 
     return jsonify({"reply": response})
 
 
-
 @app.route("/api/debate-summary", methods=["POST"])
 def debate_summary():
-    print('Debate Summary request received.')
+    print("Debate Summary request received.")
     data = request.get_json()
     conversation = data.get("history", "")
     topic = data.get("topic", "")
@@ -166,12 +200,12 @@ def debate_summary():
             Existing summary:
             {summary}
 
-            Respond with an updated version of the summary in the described format. Make sure to preserve the specified formatting in the template "Lahn:\nPro:\nCon:\n\nYou:\nPro:\nCon:". No extra characters. The contents of your response should ba based purely on the given summary. 
+            Respond with an updated version of the summary in the described format. Make sure to preserve the specified formatting in the template "Lahn:\nPro:\nCon:\n\nYou:\nPro:\nCon:". No extra characters. The contents of your response should ba based purely on the given summary.
             Summaries for 'Lahn' and 'User'should be based purely on what they said. If any party is yet to contribute to the conversation, leave their summary blank, as in the template."""
 
-    response = debate_summary_llm.complete(prompt) #chat_engine.chat(prompt)
+    response = debate_summary_llm.complete(prompt)  # chat_engine.chat(prompt)
     # print('Summary model response: ', response)
-    summary = str(response) #.choices[0].message.content
+    summary = str(response)  # .choices[0].message.content
 
     # chat_history = [
     #     ChatMessage(role="user" if m["sender"] == "user" else "assistant", content=m["text"])
@@ -180,12 +214,12 @@ def debate_summary():
 
     # print('User message:', prompt)
     # response = chat_engine.chat(messages=chat_history)
-    print('Summary:', summary)
+    print("Summary:", summary)
 
     return jsonify({"summary": summary})
 
 
-#Would want to differentiate between general user and Admin uploads----
+# Would want to differentiate between general user and Admin uploads----
 @app.route("/api/experience-upload", methods=["POST"])
 def experience_upload():
     print("Experience upload received.")
@@ -242,17 +276,17 @@ def experience_upload():
     threading.Thread(target=background_job, daemon=True).start()
 
     # ---------- RETURN IMMEDIATELY ----------
-    return jsonify({
-        "status": "success",
-        "message": "Experience saved. Processing in background."
-    })
-
+    return jsonify(
+        {"status": "success", "message": "Experience saved. Processing in background."}
+    )
 
 
 import subprocess
+
 from dotenv import load_dotenv
+
 load_dotenv()
-print('Loaded from .env file.')
+print("Loaded from .env file.")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
@@ -261,48 +295,50 @@ CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 # Could pass audio_data directly to bypass file processing latency
 @app.post("/api/voice-chat")
 def voice_chat():
-    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nVoice Chat request received.')
+    print(
+        "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nVoice Chat request received."
+    )
     global system_prompt
 
-    #Do away with function-related instructions, for now.
-    index = system_prompt.find('You also have access to sensory data')
+    # Do away with function-related instructions, for now.
+    index = system_prompt.find("You also have access to sensory data")
     system_prompt_ = system_prompt[:index]
 
     try:
         # get uploaded file + pipeline choice
-        audio_file = request.files["audio"]   # comes from FormData
+        audio_file = request.files["audio"]  # comes from FormData
 
-        ext = audio_file.mimetype.split("/")[-1] 
-        audio_path = 'data/temp.'+ext
+        ext = audio_file.mimetype.split("/")[-1]
+        audio_path = "data/temp." + ext
         audio_file.save(audio_path)
 
         pipeline = request.form.get("pipeline", "OpenAI gpt-realtime")
 
-        print('Recieved voice chat request. Pipeline: ', pipeline)
-        print('Audio: ', audio_path)
+        print("Recieved voice chat request. Pipeline: ", pipeline)
+        print("Audio: ", audio_path)
 
-
-        output_wav = 'data/temp.'+".wav"
+        output_wav = "data/temp." + ".wav"
         try:
             subprocess.run(
                 ["ffmpeg", "-y", "-i", audio_path, output_wav],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                check=True
+                check=True,
             )
             print(f"[Success] Converted to: {output_wav}")
         except subprocess.CalledProcessError as e:
             print("[Error] ffmpeg decoding failed:\n", e.stderr.decode())
             return None
-        
 
         # read into memory
-        audio_bytes = output_wav #audio_path #audio_file.read()
+        audio_bytes = output_wav  # audio_path #audio_file.read()
 
         # pass raw bytes to your dispatcher
         # Dispatch
         if pipeline == "OpenAI gpt-realtime":
-            client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_)
+            client = OpenAIRealtimeClient(
+                OPENAI_API_KEY, model="gpt-realtime", prompt=system_prompt_
+            )
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         # elif pipeline == "OpenAI gpt4o":
         #     client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-4o-realtime-preview", prompt = system_prompt_)
@@ -313,7 +349,7 @@ def voice_chat():
         else:
             return jsonify({"error": f"Unknown pipeline '{pipeline}'"}), 400
 
-        print('Done processing. Info: ', elapsed, cost_info)
+        print("Done processing. Info: ", elapsed, cost_info)
         # print('System prompt: ', system_prompt_)
 
         # Convert raw PCM to WAV
@@ -322,29 +358,39 @@ def voice_chat():
         # send audio directly
         return Response(wav_bytes, mimetype="audio/wav")
 
-
-
     except Exception as e:
         print({"error": str(e)})
         return jsonify({"error": str(e)}), 500
 
 
 import json
+
 from flask_sock import Sock
+
 sock = Sock(app)
 
-@sock.route('/api/voice-chat-stream')
-def stream(ws):
-    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nStreaming Voice Chat request received.')
 
-    system_prompt = avatar_llms['0'].system_prompt
-    #Do away with function-related instructions, for now.
-    index = system_prompt.find('You also have access to sensory data')
+@sock.route("/api/voice-chat-stream")
+def stream(ws):
+    print(
+        "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nStreaming Voice Chat request received."
+    )
+
+    system_prompt = avatar_llms["0"].system_prompt
+    # Do away with function-related instructions, for now.
+    index = system_prompt.find("You also have access to sensory data")
     system_prompt_ = system_prompt[:index]
 
-    client = OpenAIRealtimeClient(OPENAI_API_KEY, model="gpt-realtime", prompt = system_prompt_, rag_tools = avatar_rag_tools['0'], streaming=True, ws_client = ws)
+    client = OpenAIRealtimeClient(
+        OPENAI_API_KEY,
+        model="gpt-realtime",
+        prompt=system_prompt_,
+        rag_tools=avatar_rag_tools["0"],
+        streaming=True,
+        ws_client=ws,
+    )
     client.connect_to_openai()
-    
+
     #  gpt-4o-realtime-preview
     # Handle audio sent from frontend
     while True:
@@ -366,12 +412,11 @@ def stream(ws):
             client.append_audio(msg)
 
 
-
-#Multi-Avatar Management
+# Multi-Avatar Management
 
 
 # avatars_api.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify, request
 
 avatars_bp = Blueprint("avatars", __name__)
 
@@ -384,8 +429,8 @@ def avatars_collection():
     POST /api/avatars  -> create a new avatar
     """
 
-    avatars = json.load(open(avatars_path, 'r'))
-    print('\nAvatars: ', avatars)
+    avatars = json.load(open(avatars_path, "r"))
+    print("\nAvatars: ", avatars)
 
     if request.method == "GET":
         # Frontend expects: [{ id, name, systemPromptUrl, contextDocsUrl, sensorApiUrl }, ...]
@@ -402,30 +447,31 @@ def avatars_collection():
     if not name:
         return jsonify({"error": "Avatar 'name' is required."}), 400
 
-    print('\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nRecieved Request to Create New Avatar.')
+    print(
+        "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nRecieved Request to Create New Avatar."
+    )
 
     # Make id a string so it matches React's select value and find() comparison
     if len(avatars) == 0:
-        next_id = '0'
+        next_id = "0"
     else:
         max_id = max(int(a["id"]) for a in avatars)
         next_id = str(max_id + 1)
 
     os.makedirs(f"avatars_context/{next_id}", exist_ok=True)
 
-    if system_prompt_url != '':
+    if system_prompt_url != "":
         fetch_system_prompt_from_gdoc(next_id, system_prompt_url)
 
-    #Run this in a thread
-    #Set up RAG index for avatar
-    if context_docs_url != '':
+    # Run this in a thread
+    # Set up RAG index for avatar
+    if context_docs_url != "":
         drive_folder_id = context_docs_url.split("/folders/")[1].split("?")[0]
-        print('Building Index for Avatar: '+ next_id)
+        print("Building Index for Avatar: " + next_id)
         # threading.Thread(target=build_or_load_index, kwargs={"avatar_id": next_id, "drive_folder_id": drive_folder_id}).start()
         results = build_or_load_index(next_id, drive_folder_id)
     else:
         drive_folder_id = None
-
 
     avatar = {
         "id": next_id,
@@ -437,8 +483,8 @@ def avatars_collection():
     }
 
     avatars.append(avatar)
-    print('Avatars after modification: ', avatars)
-    json.dump(avatars, open(avatars_path, 'w'))
+    print("Avatars after modification: ", avatars)
+    json.dump(avatars, open(avatars_path, "w"))
     avatar_llms, avatar_rag_tools = generate_avatars_config()
     # Frontend expects the created avatar object back
     return jsonify(avatar), 201
@@ -450,8 +496,8 @@ def avatar_detail(avatar_id):
     PUT /api/avatars/<avatar_id> -> update an existing avatar
     """
     data = request.get_json() or {}
-    avatars = json.load(open(avatars_path, 'r'))
-    print('Avatars: ', avatars)
+    avatars = json.load(open(avatars_path, "r"))
+    print("Avatars: ", avatars)
 
     # Find avatar by string id
     avatar = next((a for a in avatars if a["id"] == avatar_id), None)
@@ -463,15 +509,13 @@ def avatar_detail(avatar_id):
         if field in data and data[field] is not None:
             avatar[field] = data[field]
 
-    print('Avatars after modification: ', avatars)
-    json.dump(avatars, open(avatars_path, 'w'))
+    print("Avatars after modification: ", avatars)
+    json.dump(avatars, open(avatars_path, "w"))
     avatar_llms, avatar_rag_tools = generate_avatars_config()
     return jsonify(avatar), 200
 
 
 app.register_blueprint(avatars_bp)
-
-
 
 
 if __name__ == "__main__":

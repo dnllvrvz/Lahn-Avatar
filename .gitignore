@@ -3,6 +3,8 @@ __pycache__/
 
 lahn_env/
 backend/env/
+backend/avatars_context/
+
 backups/
 
 .archive/

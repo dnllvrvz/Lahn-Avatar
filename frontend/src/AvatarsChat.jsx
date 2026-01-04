@@ -4,13 +4,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
 
 import "@fontsource/chakra-petch";
 
 export default function MultiAvatarChat() {
-  const [refreshPromptState, setRefreshPromptState] = useState("idle");
-  const [refreshEmbeddingsState, setRefreshEmbeddingsState] = useState("idle");
+  // const [refreshPromptState, setRefreshPromptState] = useState("idle");
+  // const [refreshEmbeddingsState, setRefreshEmbeddingsState] = useState("idle");
 
   // --- avatar management state ---
   const [avatars, setAvatars] = useState([]);
@@ -51,7 +50,7 @@ export default function MultiAvatarChat() {
 
   const [selectedTopic, setSelectedTopic] = useState("");
   const [debateSummary, setDebateSummary] = useState(`Avatar:\nPro:\nCon:\n\nYou:\nPro:\nCon:`);
-  const [hasFetchedDebateInit, setHasFetchedDebateInit] = useState(false);
+  // const [hasFetchedDebateInit, setHasFetchedDebateInit] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -254,7 +253,6 @@ export default function MultiAvatarChat() {
     // Optional: reset debate UI too
     setSelectedTopic("");
     setDebateSummary(`Avatar:\nPro:\nCon:\n\nYou:\nPro:\nCon:`);
-    setHasFetchedDebateInit(false);
 
     // Optional: prevent auto-scroll jump on this reset
     firstRender.current = true;
@@ -368,7 +366,7 @@ export default function MultiAvatarChat() {
           <select
             className="w-full p-2 rounded-md border bg-white font-poetic"
             value={selectedTopic}
-            onChange={e => { setSelectedTopic(e.target.value); setHasFetchedDebateInit(false); }}
+            onChange={e => { setSelectedTopic(e.target.value); }}
           >
             <option value="">-- select --</option>
             {topics.map((t, i) => (

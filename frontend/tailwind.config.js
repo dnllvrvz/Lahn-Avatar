@@ -8,12 +8,23 @@ module.exports = {
   ],
   theme: {
   	extend: {
-  		fontFamily: {
-  			poetic: [
-  				'Gloock"',
-  				'serif'
-  			]
-  		},
+  		  fontFamily: {
+  		    poetic: [
+  		      'Gloock',
+  		      'serif'
+  		    ]
+  		  },
+        textShadow: {
+          sm: '0 1px 2px var(--tw-shadow-color)',
+          DEFAULT: '0 2px 4px var(--tw-shadow-color)',
+          md: '0 4px 6px var(--tw-shadow-color)',
+          lg: '0 8px 16px var(--tw-shadow-color)',
+        },
+        dropShadow: {
+          'text': '0 1px 1px rgba(0, 0, 0, 0.8)',
+          'text-md': '0 2px 2px rgba(0, 0, 0, 0.8)',
+          'text-lg': '0 3px 3px rgba(0, 0, 0, 0.8)',
+        },
   		animation: {
   			ripple: 'ripple 3s ease-in-out infinite',
   			breathe: 'breathe 4s ease-in-out infinite'
@@ -87,5 +98,24 @@ module.exports = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    function ({ addUtilities, theme }) {
+      const newUtilities = {
+        '.text-shadow-sm': {
+          textShadow: theme('textShadow.sm'),
+        },
+        '.text-shadow': {
+          textShadow: theme('textShadow.DEFAULT'),
+        },
+        '.text-shadow-md': {
+          textShadow: theme('textShadow.md'),
+        },
+        '.text-shadow-lg': {
+          textShadow: theme('textShadow.lg'),
+        },
+      }
+      addUtilities(newUtilities, ['responsive', 'hover'])
+    }
+  ],
 };

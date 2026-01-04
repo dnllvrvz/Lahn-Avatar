@@ -20,16 +20,16 @@ export default function VoiceChatStream() {
 
   const wsRef = useRef(null);
 
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  // const mediaRecorderRef = useRef(null);
+  // const audioChunksRef = useRef([]);
   const userStreamRef = useRef(null);
   const userAnalyserRef = useRef(null);
 
   const avatarAudioRef = useRef(null);
   const avatarAnalyserRef = useRef(null);
 
-  const pmBufferRef = useRef([]);
-  const rafIdRef = useRef(null);
+  // const pmBufferRef = useRef([]);
+  // const rafIdRef = useRef(null);
 
   const nextPlayTimeRef = useRef(0);
 
@@ -40,7 +40,7 @@ export default function VoiceChatStream() {
 
   const [conversation, setConversation] = useState([]);
 
-  const [wsConnected, setWsConnected] = useState(false);
+  // const [wsConnected, setWsConnected] = useState(false);
 
   const recordingAudioCtxRef = useRef(null);
   const recordingWorkletRef = useRef(null);
@@ -62,11 +62,11 @@ export default function VoiceChatStream() {
     
     wsRef.current.onclose = () => {
       console.log("🔌 WebSocket closed");
-      setWsConnected(false);
+      // setWsConnected(false);
     };
     
     await new Promise((resolve) => (wsRef.current.onopen = resolve));
-    setWsConnected(true);
+    // setWsConnected(true);
     console.log("✅ WS connected");
   };
 
@@ -79,12 +79,12 @@ export default function VoiceChatStream() {
 
     // 🔥 FULL mic reset
     if (recordingAudioCtxRef.current) {
-      try { recordingAudioCtxRef.current.close(); } catch {}
+      try { recordingAudioCtxRef.current.close(); } catch (_e) { /* ignore error on close */ }
       recordingAudioCtxRef.current = null;
     }
 
     if (recordingWorkletRef.current) {
-      try { recordingWorkletRef.current.disconnect(); } catch {}
+      try { recordingWorkletRef.current.disconnect(); } catch (_e) { /* ignore error on disconnect */ }
       recordingWorkletRef.current = null;
     }
 
@@ -160,9 +160,14 @@ export default function VoiceChatStream() {
       // if (wsRef.current.readyState === WebSocket.OPEN)
       //   wsRef.current.send(pcm16.buffer);
 
+      // Send to backend
+      // setAvatarThinking(true);
       // Base64 encode and send to backend
       const base64Chunk = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-      if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(base64Chunk);
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(base64Chunk);
+        setAvatarThinking(true);
+      }
     };
 
     source.connect(worklet);
@@ -196,13 +201,13 @@ export default function VoiceChatStream() {
 
     // 3️⃣ Kill worklet node
     if (recordingWorkletRef.current) {
-      try { recordingWorkletRef.current.disconnect(); } catch {}
+      try { recordingWorkletRef.current.disconnect(); } catch (_e) { /* ignore error on disconnect */ }
       recordingWorkletRef.current = null;
     }
 
     // 4️⃣ Kill the AudioContext
     if (recordingAudioCtxRef.current) {
-      try { recordingAudioCtxRef.current.close(); } catch {}
+      try { recordingAudioCtxRef.current.close(); } catch (_e) { /* ignore error on close */ }
       recordingAudioCtxRef.current = null;
     }
 
@@ -219,7 +224,7 @@ export default function VoiceChatStream() {
     if (ctx) {
       try {
         ctx.close(); // stop all pending buffers
-      } catch {}
+      } catch (_e) { /* ignore error on close */ }
     }
     avatarAudioRef.current = null;
     avatarAnalyserRef.current = null;
@@ -285,6 +290,7 @@ export default function VoiceChatStream() {
           setAvatarPlaying(false);
           avatarPlayingRef.current = false;
           setAvatarVolume(0);
+          setAvatarThinking(false);
         }
       };
 
@@ -315,7 +321,7 @@ export default function VoiceChatStream() {
           default:
             console.log("Unhandled WS text message:", msg);
         }
-      } catch (err) {
+      } catch (_ignoredErr) {
         console.warn("Non-JSON text message:", e.data);
       }
     }

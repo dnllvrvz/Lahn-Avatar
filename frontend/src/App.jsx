@@ -9,8 +9,8 @@ import { motion } from "framer-motion";
 import "@fontsource/chakra-petch";
 
 export default function LahnAvatarChat() {
-  const [refreshPromptState, setRefreshPromptState] = useState("idle");
-  const [refreshEmbeddingsState, setRefreshEmbeddingsState] = useState("idle");
+  // const [refreshPromptState, setRefreshPromptState] = useState("idle");
+  // const [refreshEmbeddingsState, setRefreshEmbeddingsState] = useState("idle");
   const [defaultMessages, setDefaultMessages] = useState([]);
   const [debateMessages, setDebateMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -26,9 +26,9 @@ export default function LahnAvatarChat() {
   };
   const [selectedTopic, setSelectedTopic] = useState("");
   const [debateSummary, setDebateSummary] = useState(`Lahn:\nPro:\nCon:\n\nYou:\nPro:\nCon:`);
-  const [hasFetchedDebateInit, setHasFetchedDebateInit] = useState(false);
+  // const [hasFetchedDebateInit, setHasFetchedDebateInit] = useState(false);
   const chatEndRef = useRef(null);
-  const initialFetchRef = useRef(false);
+  // const initialFetchRef = useRef(false);
 
   const messages = isDebateMode ? debateMessages : defaultMessages;
   const setMessages = isDebateMode ? setDebateMessages : setDefaultMessages;
@@ -91,7 +91,7 @@ export default function LahnAvatarChat() {
         }
       })();
     }
-  }, [debateMessages]);
+  }, [debateMessages, debateSummary, isDebateMode, selectedTopic]);
 
   // const handleRefreshPrompt = async () => {
   //   setRefreshPromptState("loading");
@@ -130,51 +130,63 @@ export default function LahnAvatarChat() {
   }, [messages]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-100 to-stone-100 p-4 flex flex-col items-center" style={{ fontFamily: "'Chakra Petch', sans-serif" }}>
-      <motion.h1 className="text-3xl font-poetic text-amber-700 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
-        Lahn River: Listening to the Ecosystem.
-      </motion.h1>
-      <motion.h3 className="text-xl font-poetic text-amber-700 italic mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
-        Ever heard a river speak? Meet the Lahn and her Avatar.
-      </motion.h3>
+    <div className="min-h-screen p-4 flex flex-col items-center" style={{ fontFamily: "'Chakra Petch', sans-serif" }}>
+      {/* BACKGROUND VIDEO */}
+      <video
+        id="bg-video"
+        src="/lahn_video_stitched.mp4"
+        autoPlay
+        muted
+        loop
+        playsInline
+        className="fixed top-0 left-0 w-full h-full object-cover -z-10 opacity-70"
+      ></video>
+      <div className="bg-white/80 p-6 rounded-lg shadow-lg relative z-10 mx-auto w-auto flex flex-col items-center">
+        <motion.h1 className="text-3xl font-poetic text-amber-700 mb-6 max-w-5xl text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
+          Lahn River: Listening to the Ecosystem.
+        </motion.h1>
+        <motion.h3 className="text-xl font-poetic text-amber-700 italic mb-6 max-w-5xl text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
+          Ever heard a river speak? Meet the Lahn and her Avatar.
+        </motion.h3>
 
-      <div className="mb-6 text-stone-900 text-center">
-        <p className="text-lg italic mb-2">Not sure where to begin? Try asking me:</p>
-        <ul className="list-disc list-inside pl-4 text-base italic">
-          <li>“What’s your oldest memory?”</li>
-          <li>“Who lives in you?”</li>
-          <li>“How can we protect you better?”</li>
-        </ul>
-      </div>
-
-      <div className="flex items-center space-x-6 mb-4">
-        <div className="flex items-center space-x-2">
-          <Switch checked={isDebateMode} onCheckedChange={setIsDebateMode} />
-          <span className="font-poetic text-stone-700">Debate Mode</span>
+        <div className="mb-6 text-stone-900 text-center">
+          <p className="text-lg italic mb-2">Not sure where to begin? Try asking me:</p>
+          <ul className="list-disc list-inside pl-4 text-base italic">
+            <li>“What’s your oldest memory?”</li>
+            <li>“Who lives in you?”</li>
+            <li>“How can we protect you better?”</li>
+          </ul>
         </div>
-        {/*<Button
-          onClick={handleRefreshPrompt}
-          disabled={refreshPromptState === "loading"}
-          variant="outline"
-        >
-          {refreshPromptState === "idle"
-            ? "Refresh Prompt"
-            : refreshPromptState === "loading"
-            ? "Refreshing..."
-            : "✓ Done"}
-        </Button>
-        <Button
-          onClick={handleRefreshEmbeddings}
-          disabled={refreshEmbeddingsState === "loading"}
-          variant="outline"
-        >
-          {refreshEmbeddingsState === "idle"
-            ? "Refresh Embeddings"
-            : refreshEmbeddingsState === "loading"
-            ? "Refreshing..."
-            : "✓ Done"}
-        </Button>*/}
-      </div>
+
+        <div className="flex items-center space-x-6 mb-4">
+          <div className="flex items-center space-x-2">
+                      <Switch checked={isDebateMode} onCheckedChange={setIsDebateMode} />
+                        <span className="font-poetic text-stone-700">Debate Mode</span>
+                      </div>
+                      {/*<Button
+                        onClick={handleRefreshPrompt}
+                        disabled={refreshPromptState === "loading"}
+                        variant="outline"
+                      >
+                        {refreshPromptState === "idle"
+                          ? "Refresh Prompt"
+                          : refreshPromptState === "loading"
+                          ? "Refreshing..."
+                          : "✓ Done"}
+                      </Button>
+                      <Button
+                        onClick={handleRefreshEmbeddings}
+                        disabled={refreshEmbeddingsState === "loading"}
+                        variant="outline"
+                      >
+                        {refreshEmbeddingsState === "idle"
+                          ? "Refresh Embeddings"
+                          : refreshEmbeddingsState === "loading"
+                          ? "Refreshing..."
+                          : "✓ Done"}
+                      </Button>*/}
+                    </div>
+                  </div>
 
       {isDebateMode && (
         <div className="w-full max-w-5xl mb-4 px-4">
@@ -182,7 +194,7 @@ export default function LahnAvatarChat() {
           <select
             className="w-full p-2 rounded-md border bg-white font-poetic"
             value={selectedTopic}
-            onChange={e => { setSelectedTopic(e.target.value); setHasFetchedDebateInit(false); }}
+            onChange={e => { setSelectedTopic(e.target.value); }}
           >
             <option value="">-- select --</option>
             {topics.map((t, i) => (

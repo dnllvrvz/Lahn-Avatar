@@ -278,8 +278,6 @@ def ensure_punkt_tab():
     except LookupError:
         print("punkt_tab not found—downloading…")
         nltk.download("punkt_tab")
-    else:
-        print("punkt_tab already available.")
 
 
 CHUNK_SIZE, OVERLAP = 200, 30
@@ -294,6 +292,7 @@ def normalise(txt: str) -> str:
 
 
 def tokenize(text: str, lang: str) -> list[str]:
+    ensure_punkt_tab()
     lang_flag = "german" if lang == "de" else "english"
     return word_tokenize(text, language=lang_flag)
 

@@ -37,23 +37,68 @@ UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
+
 @app.route("/api/refresh-prompt", methods=["POST"])
 def refresh_prompt():
-    global system_prompt, llm
-    print("Refresh prompt request received.")
-    fetch_system_prompt_from_gdoc()
-    llm, system_prompt = get_llm("openai", llm_choice)
-    return "Done."
+    global avatar_llms
+    data = request.get_json()
+    avatar_id = data.get("avatar_id")
+    if not avatar_id:
+        return jsonify({"error": "avatar_id is required"}), 400
+
+    print(f"Refresh prompt request received for avatar {avatar_id}.")
+
+    avatars = json.load(open(avatars_path, "r"))
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+    if not avatar:
+        return jsonify({"error": "Avatar not found."}), 404
+
+    system_prompt_url = avatar.get("systemPromptUrl")
+    if not system_prompt_url:
+        return jsonify({"error": "Avatar does not have a systemPromptUrl."}), 400
+
+    try:
+        fetch_system_prompt_from_gdoc(avatar_id, system_prompt_url)
+        # Reload the specific avatar's config
+        llm, _ = generate_avatars_config(specific_avatar_id=avatar_id)
+        if llm:
+            avatar_llms[avatar_id] = llm
+        else:
+            return jsonify({"error": "Failed to reload avatar configuration."}), 500
+
+        return jsonify({"status": "success", "message": f"Prompt for avatar {avatar_id} refreshed."})
+    except Exception as e:
+        print(f"Error refreshing prompt for avatar {avatar_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/refresh-embeddings", methods=["POST"])
 def refresh_embeddings():
-    global vector_index_query_engine, text_index_query_engine, text_index, chunks
-    print("Refresh embeddings request received.")
-    vector_index_query_engine, text_index_query_engine, text_index, chunks = (
-        prepare_query_engines(refresh=True)
-    )
-    return "Done"
+    global avatar_rag_tools
+    data = request.get_json()
+    avatar_id = data.get("avatar_id")
+    if not avatar_id:
+        return jsonify({"error": "avatar_id is required"}), 400
+
+    print(f"Refresh embeddings request received for avatar {avatar_id}.")
+
+    avatars = json.load(open(avatars_path, "r"))
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+    if not avatar:
+        return jsonify({"error": "Avatar not found."}), 404
+
+    drive_folder_id = avatar.get("driveFolderId")
+    if not drive_folder_id:
+        return jsonify({"error": "Avatar does not have a driveFolderId."}), 400
+
+    try:
+        # Re-build the index and get the new query engines
+        rag_tools = prepare_query_engines(avatar_id, drive_folder_id, refresh=True)
+        avatar_rag_tools[avatar_id] = rag_tools
+        return jsonify({"status": "success", "message": f"Embeddings for avatar {avatar_id} refreshed."})
+    except Exception as e:
+        print(f"Error refreshing embeddings for avatar {avatar_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # debate_general_prompt = "Right now you are on a deliberation-centered platform, debating with the user the topic of '{topic}'. In this mode you should always consider the best interests of the Lahn River. You must decide what the Lahn’s best interests are based on all of your context information. You are the Lahn’s advocate right now. Below is a brief description of the topic, which both you and the user have access to. You can present your position to the user as you answer questions they might have on the topic. '{description}'"

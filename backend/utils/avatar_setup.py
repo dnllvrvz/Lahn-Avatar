@@ -12,32 +12,50 @@ API_BASE = None #os.getenv("GWDG_API_BASE")
 
 llm_choice = 'gpt-4.1-mini' #'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
 
-def generate_avatars_config():
+def generate_avatars_config(specific_avatar_id=None):
 	global avatars_path, avatar_llms, avatar_rag_tools
 	# In-memory storage (replace with DB later if you like)
 	avatars_path = 'avatars.json'
 	avatars = json.load(open(avatars_path, 'r'))
 
-	avatar_llms = {}
-	avatar_rag_tools = {}
+	if specific_avatar_id is None:
+		avatar_llms = {}
+		avatar_rag_tools = {}
+		avatars_to_process = avatars
+	else:
+		# If we are refreshing a single avatar, we don't want to wipe the existing dicts
+		avatars_to_process = [a for a in avatars if a['id'] == specific_avatar_id]
+		if not avatars_to_process:
+			return None, None # Avatar not found
 
-	for avatar in avatars:
-	    avatar_id = avatar['id']
-	    print('\nWorking on Avatar: ', avatar_id)
-	    try:
-	        system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
-	    except FileNotFoundError:
-	        print('System prompt not found for avatar ' + avatar_id + '. Fetching from G-Doc...')
-	        fetch_system_prompt_from_gdoc(avatar_id, avatar['systemPromptUrl'])
-	        system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
+	for avatar in avatars_to_process:
+		avatar_id = avatar['id']
+		print('\nWorking on Avatar: ', avatar_id)
+		try:
+			system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
+		except FileNotFoundError:
+			print('System prompt not found for avatar ' + avatar_id + '. Fetching from G-Doc...')
+			if avatar.get('systemPromptUrl'):
+				fetch_system_prompt_from_gdoc(avatar_id, avatar['systemPromptUrl'])
+				system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
+			else:
+				system_prompt = "Default system prompt." # Or handle error appropriately
 
-	    avatar_llms[avatar_id] = LLM(
-	                        provider="openai",
-	                        openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
-	                        openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
-	                        system_prompt= system_prompt
-	                    )
-	    avatar_rag_tools[avatar_id] = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar['driveFolderId'])
+		llm = LLM(
+			provider="openai",
+			openai_api_key=API_KEY,
+			openai_model=llm_choice,
+			system_prompt=system_prompt
+		)
+		rag_tools = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar.get('driveFolderId'))
+
+		if specific_avatar_id:
+			avatar_llms[avatar_id] = llm
+			avatar_rag_tools[avatar_id] = rag_tools
+			return llm, rag_tools
+
+		avatar_llms[avatar_id] = llm
+		avatar_rag_tools[avatar_id] = rag_tools
 
 	return avatar_llms, avatar_rag_tools
 

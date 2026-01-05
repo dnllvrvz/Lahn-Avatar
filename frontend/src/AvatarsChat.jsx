@@ -55,6 +55,36 @@ export default function MultiAvatarChat() {
 
   const chatEndRef = useRef(null);
 
+  const [refreshState, setRefreshState] = useState({ prompt: "idle", embeddings: "idle" }); // idle, loading, success, error
+
+  const handleRefresh = async (type) => {
+    if (!selectedAvatarId) return;
+
+    const endpoint = type === 'prompt' ? '/api/refresh-prompt' : '/api/refresh-embeddings';
+    setRefreshState(prev => ({ ...prev, [type]: 'loading' }));
+
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar_id: selectedAvatarId }),
+      });
+
+      if (!resp.ok) {
+        const errorData = await resp.json();
+        throw new Error(errorData.error || `Failed to refresh ${type}`);
+      }
+
+      setRefreshState(prev => ({ ...prev, [type]: 'success' }));
+      setTimeout(() => setRefreshState(prev => ({ ...prev, [type]: 'idle' })), 2000);
+
+    } catch (err) {
+      console.error(`Error refreshing ${type}:`, err);
+      setRefreshState(prev => ({ ...prev, [type]: 'error' }));
+      setTimeout(() => setRefreshState(prev => ({ ...prev, [type]: 'idle' })), 3000);
+    }
+  };
+
   const messages = isDebateMode ? debateMessages : defaultMessages;
   const setMessages = isDebateMode ? setDebateMessages : setDefaultMessages;
   const isThinking = isDebateMode ? debateThinking : defaultThinking;
@@ -328,8 +358,30 @@ export default function MultiAvatarChat() {
               </Button>
             )}
           </div>
+          
           {selectedAvatar && (
-            <div className="mt-2 text-xs text-stone-700 space-y-1">
+            <div className="flex gap-2 items-center justify-center mt-2">
+              <Button
+                variant="outline"
+                className="font-poetic"
+                onClick={() => handleRefresh('prompt')}
+                disabled={!selectedAvatarId || refreshState.prompt !== 'idle'}
+              >
+                {refreshState.prompt === 'loading' ? 'Refreshing...' : refreshState.prompt === 'success' ? 'Refreshed!' : refreshState.prompt === 'error' ? 'Error!' : 'Refresh Prompt'}
+              </Button>
+              <Button
+                variant="outline"
+                className="font-poetic"
+                onClick={() => handleRefresh('embeddings')}
+                disabled={!selectedAvatarId || refreshState.embeddings !== 'idle'}
+              >
+                {refreshState.embeddings === 'loading' ? 'Refreshing...' : refreshState.embeddings === 'success' ? 'Refreshed!' : refreshState.embeddings === 'error' ? 'Error!' : 'Refresh Avatar Context Files'}
+              </Button>
+            </div>
+          )}
+
+          {selectedAvatar && (
+            <div className="mt-4 text-xs text-stone-700 space-y-1">
               <div><span className="font-semibold">Prompt:</span> {selectedAvatar.systemPromptUrl || "—"}</div>
               <div><span className="font-semibold">Context:</span> {selectedAvatar.contextDocsUrl || "—"}</div>
               <div><span className="font-semibold">Sensors:</span> {selectedAvatar.sensorApiUrl || "—"}</div>

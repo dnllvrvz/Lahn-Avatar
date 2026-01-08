@@ -556,7 +556,7 @@ export default function MultiAvatarChat() {
                   }}
                   value={avatarForm.systemPromptUrl}
                   onChange={e => handleAvatarFormChange("systemPromptUrl", e.target.value)}
-                  placeholder="https://… (system prompt document)"
+                  placeholder="Google Docs Link (e.g., https://docs.google.com/...)"
                 />
               </div>
               <div>
@@ -571,7 +571,7 @@ export default function MultiAvatarChat() {
                   }}
                   value={avatarForm.contextDocsUrl}
                   onChange={e => handleAvatarFormChange("contextDocsUrl", e.target.value)}
-                  placeholder="https://… (context / RAG docs)"
+                  placeholder="Google Drive Folder Link (e.g., https://drive.google.com/drive/folders/...)"
                 />
               </div>
               <div>

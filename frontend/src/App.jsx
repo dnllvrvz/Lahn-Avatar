@@ -142,26 +142,25 @@ export default function LahnAvatarChat() {
         className="fixed top-0 left-0 w-full h-full object-cover -z-10 opacity-70"
       ></video>
       <div className="bg-white/80 p-6 rounded-lg shadow-lg relative z-10 mx-auto w-auto flex flex-col items-center">
-        <motion.h1 className="text-3xl font-poetic text-amber-700 mb-6 max-w-5xl text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
-          Lahn River: Listening to the Ecosystem.
-        </motion.h1>
-        <motion.h3 className="text-xl font-poetic text-amber-700 italic mb-6 max-w-5xl text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
+
+        <motion.h1 className="text-3xl text-amber-700 mb-6 max-w-5xl text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
           Ever heard a river speak? Meet the Lahn and her Avatar.
-        </motion.h3>
+        </motion.h1>
 
         <div className="mb-6 text-stone-900 text-center">
-          <p className="text-lg italic mb-2">Not sure where to begin? Try asking me:</p>
+          <p className="text-lg italic mb-2">You can ask things like:</p>
           <ul className="list-disc list-inside pl-4 text-base italic">
             <li>“What’s your oldest memory?”</li>
             <li>“Who lives in you?”</li>
             <li>“How can we protect you better?”</li>
+            <li>“What is your current temperature?”</li>
           </ul>
         </div>
 
         <div className="flex items-center space-x-6 mb-4">
           <div className="flex items-center space-x-2">
                       <Switch checked={isDebateMode} onCheckedChange={setIsDebateMode} />
-                        <span className="font-poetic text-stone-700">Debate Mode</span>
+                        <span className="text-stone-700">Debate Mode</span>
                       </div>
                       {/*<Button
                         onClick={handleRefreshPrompt}
@@ -190,9 +189,9 @@ export default function LahnAvatarChat() {
 
       {isDebateMode && (
         <div className="w-full max-w-5xl mb-4 px-4">
-          <label className="block mb-1 font-poetic text-stone-800">Choose a topic:</label>
+          <label className="block mb-1 text-stone-800">Choose a topic:</label>
           <select
-            className="w-full p-2 rounded-md border bg-white font-poetic"
+            className="w-full p-2 rounded-md border bg-white"
             value={selectedTopic}
             onChange={e => { setSelectedTopic(e.target.value); }}
           >
@@ -202,7 +201,7 @@ export default function LahnAvatarChat() {
             ))}
           </select>
             {selectedTopic && (
-            <div className="mt-2 p-3 bg-white rounded-md border text-stone-700 font-poetic">
+            <div className="mt-2 p-3 bg-white rounded-md border text-stone-700">
               {topicDescriptions[selectedTopic]}
             </div>
           )}
@@ -258,7 +257,7 @@ export default function LahnAvatarChat() {
                   className="flex-1"
                 >
                   <Input
-                    className="w-full rounded-full font-poetic bg-white text-stone-900"
+                    className="w-full rounded-full bg-white text-stone-900"
                     style={{ color: '#1c1917' }}
                     placeholder="Speak with the river..."
                     value={input}
@@ -269,7 +268,7 @@ export default function LahnAvatarChat() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
                   <Button
                     onClick={handleSubmit}
-                    className="rounded-full px-6 py-2 font-poetic bg-amber-600 text-white hover:bg-amber-700"
+                    className="rounded-full px-6 py-2 bg-amber-600 text-white hover:bg-amber-700"
                   >
                     Flow
                   </Button>
@@ -280,7 +279,7 @@ export default function LahnAvatarChat() {
 
           {isDebateMode && (
             <div className="w-full md:w-1/3 bg-white rounded-2xl shadow p-4 h-[60vh] overflow-y-auto">
-              <h4 className="font-poetic text-lg font-bold mb-2">Debate Summary</h4>
+              <h4 className="text-lg font-bold mb-2">Debate Summary</h4>
               <div className="text-sm text-stone-700 whitespace-pre-wrap"
                 dangerouslySetInnerHTML={{ __html: debateSummary }}
                 />

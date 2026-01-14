@@ -1,3 +1,4 @@
+import os
 from typing import Any, Literal, List, Dict, Union, Optional
 from pydantic import Field
 from llama_index.core.llms import (
@@ -35,6 +36,8 @@ class LLM(CustomLLM):
     openai_model: str = Field(default="gpt-4.1-mini")
     openai_api_base: str = Field(default="https://api.openai.com/v1")
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+
+    timeout: int = Field(default=60) # New timeout field
 
     @property
     def metadata(self) -> LLMMetadata:
@@ -90,7 +93,7 @@ class LLM(CustomLLM):
         }
 
         url = f"{self.gwdg_api_base.rstrip('/')}/chat/completions"
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
         if resp.status_code >= 400:
             try:
                 err = resp.json()
@@ -119,7 +122,7 @@ class LLM(CustomLLM):
         }
 
         url = f"{self.openai_api_base.rstrip('/')}/chat/completions"
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
         
         if resp.status_code >= 400:
             try:

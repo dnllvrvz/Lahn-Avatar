@@ -44,6 +44,13 @@ from openai import OpenAI
 from rank_bm25 import BM25Okapi
 from youtube_transcript_api import YouTubeTranscriptApi
 
+# --- LLAMA-INDEX GLOBAL SETTINGS ---
+# Load the embedding model once and set it globally
+Settings.embed_model = HuggingFaceEmbedding(
+    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+)
+# ---
+
 # === CONFIG ===
 
 
@@ -754,9 +761,6 @@ def build_index(avatar_id, drive_folder_id):
 
 
 def build_or_load_index(avatar_id, drive_folder_id, refresh=False):
-    Settings.embed_model = HuggingFaceEmbedding(
-        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    )
     index_dir = "avatars_context/" + avatar_id + "/index"
     data_dir = "avatars_context/" + avatar_id + "/data"
 

@@ -35,6 +35,54 @@ export default function MultiAvatarChat() {
   const [debateThinking, setDebateThinking] = useState(false);
   const [isDebateMode, setIsDebateMode] = useState(false);
 
+  // --- LLM selection and health state ---
+  const [currentUserLlmProvider, setCurrentUserLlmProvider] = useState('openai');
+  const [currentUserLlmModel, setCurrentUserLlmModel] = useState('gpt-4o-mini');
+  const [modelHealth, setModelHealth] = useState({});
+
+  const llmOptions = {
+    openai: {
+      name: "OpenAI",
+      models: ["gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+    },
+    gwdg: {
+      name: "JLU",
+      models: ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "ollama/gemma3", "mistral-large-instruct"],
+    },
+  };
+
+  // === Initial load ===
+  useEffect(() => {
+    // Fetch avatars
+    (async () => {
+      try {
+        const resp = await fetch("/api/avatars");
+        if (!resp.ok) throw new Error("Failed to fetch avatars");
+        const data = await resp.json();
+        setAvatars(data || []);
+        if (data && data.length > 0) {
+          setSelectedAvatarId(data[0].id);
+        }
+      } catch (err) {
+        console.error("Error loading avatars:", err);
+      }
+    })();
+
+    // Fetch LLM health
+    (async () => {
+        try {
+            const resp = await fetch("/api/health/llm");
+            if (!resp.ok) throw new Error("Failed to fetch LLM health");
+            const data = await resp.json();
+            setModelHealth(data);
+            console.log("LLM Health Status:", data); // Add console log here
+        } catch (err) {
+            console.error("Error loading LLM health:", err);
+        }
+    })();
+  }, []);
+
+
   const [topics] = useState([
     'The River should have legal personhood',
     'The River should be able to own property',
@@ -179,22 +227,6 @@ export default function MultiAvatarChat() {
     }
   };
 
-  // === Initial load of avatar list ===
-  useEffect(() => {
-    (async () => {
-      try {
-        const resp = await fetch("/api/avatars");
-        if (!resp.ok) throw new Error("Failed to fetch avatars");
-        const data = await resp.json();
-        setAvatars(data || []);
-        if (data && data.length > 0) {
-          setSelectedAvatarId(data[0].id);
-        }
-      } catch (err) {
-        console.error("Error loading avatars:", err);
-      }
-    })();
-  }, []);
 
   // === Chat fetch ===
   const fetchMessage = async (payload) => {
@@ -213,6 +245,8 @@ export default function MultiAvatarChat() {
             ...payload,
             avatarId: selectedAvatar.id,
             avatarName: selectedAvatar.name,
+            llmProvider: currentUserLlmProvider,
+            llmModel: currentUserLlmModel,
             ...(isDebateMode && selectedTopic
               ? { topic: selectedTopic }
               : {})
@@ -322,44 +356,94 @@ export default function MultiAvatarChat() {
         Choose which avatar you want to speak with – or create your own.
       </motion.h3>
 
-      {/* Avatar selection + controls */}
-      <div className="w-full max-w-5xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 px-4">
-        <div className="flex-1">
-          <label className="block mb-1 font-poetic text-stone-800">
-            Active avatar
-          </label>
-          <div className="flex gap-2 items-center">
-            <select
-              className="w-full p-2 rounded-md border bg-white font-poetic"
-              value={selectedAvatarId}
-              onChange={e => setSelectedAvatarId(e.target.value)}
-            >
-              <option value="">-- Select an avatar --</option>
-              {avatars.map(av => (
-                <option key={av.id} value={av.id}>
-                  {av.name}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
-              className="font-poetic"
-              onClick={openCreateAvatarForm}
-            >
-              + New
-            </Button>
-            {selectedAvatar && (
+      {/* Avatar and LLM selection + controls */}
+      <div className="w-full max-w-5xl flex flex-col gap-4 mb-4 px-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex-1">
+            <label className="block mb-1 font-poetic text-stone-800">
+              Active avatar
+            </label>
+            <div className="flex gap-2 items-center">
+              <select
+                className="w-full p-2 rounded-md border bg-white font-poetic"
+                value={selectedAvatarId}
+                onChange={e => setSelectedAvatarId(e.target.value)}
+              >
+                <option value="">-- Select an avatar --</option>
+                {avatars.map(av => (
+                  <option key={av.id} value={av.id}>
+                    {av.name}
+                  </option>
+                ))}
+              </select>
               <Button
                 variant="outline"
                 className="font-poetic"
-                onClick={() => openEditAvatarForm(selectedAvatar)}
+                onClick={openCreateAvatarForm}
               >
-                Edit
+                + New
               </Button>
-            )}
+              {selectedAvatar && (
+                <Button
+                  variant="outline"
+                  className="font-poetic"
+                  onClick={() => openEditAvatarForm(selectedAvatar)}
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
           </div>
-          
-          {selectedAvatar && (
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Switch checked={isDebateMode} onCheckedChange={setIsDebateMode} />
+              <span className="font-poetic text-stone-700">Debate Mode</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+                <label className="font-poetic text-stone-700">Provider:</label>
+                <select
+                    className="p-2 rounded-md border bg-white font-poetic"
+                    value={currentUserLlmProvider}
+                    onChange={e => {
+                        setCurrentUserLlmProvider(e.target.value);
+                        setCurrentUserLlmModel(llmOptions[e.target.value].models[0]);
+                    }}
+                >
+                    {Object.keys(llmOptions).map(key => (
+                        <option key={key} value={key}>{llmOptions[key].name}</option>
+                    ))}
+                </select>
+            </div>
+            <div className="flex items-center space-x-2">
+                <label className="font-poetic text-stone-700">Model:</label>
+                <select
+                    className="p-2 rounded-md border bg-white font-poetic"
+                    value={currentUserLlmModel}
+                    onChange={e => setCurrentUserLlmModel(e.target.value)}
+                >
+                    {llmOptions[currentUserLlmProvider].models.map(model => {
+                        const status = modelHealth[model];
+                        let indicator = '⚪'; // Default: Unknown
+                        if (status === 'online') {
+                            indicator = '🟢'; // Green: Online
+                        } else if (status === 'offline') {
+                            indicator = '🔴'; // Red: Offline
+                        }
+                        return (
+                            <option key={model} value={model} disabled={status === 'offline'}>
+                                {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                            </option>
+                        );
+                    })}
+                </select>
+            </div>
+        </div>
+
+        {selectedAvatar && (
             <div className="flex gap-2 items-center justify-center mt-2">
               <Button
                 variant="outline"
@@ -393,14 +477,6 @@ export default function MultiAvatarChat() {
               Please select or create an avatar to start chatting.
             </div>
           )}
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Switch checked={isDebateMode} onCheckedChange={setIsDebateMode} />
-            <span className="font-poetic text-stone-700">Debate Mode</span>
-          </div>
-        </div>
       </div>
 
       {/* Suggestion text */}

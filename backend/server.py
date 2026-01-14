@@ -4,9 +4,14 @@ import os
 import threading
 from datetime import datetime
 
+from dotenv import load_dotenv
+load_dotenv()
+print("Loaded from .env file.")
+
 from flask import Flask, Response, jsonify, make_response, request, send_file
 from flask_cors import CORS
 from llama_index.core.tools.query_engine import QueryEngineTool
+from utils.llm_tooling import LLM
 from utils.avatar_setup import (
     avatar_llms,
     avatar_rag_tools,
@@ -28,6 +33,7 @@ from utils.utils import (
     transcribe_audio,
 )
 from werkzeug.utils import secure_filename
+import requests
 
 # === Initialize Flask ===
 app = Flask(__name__)
@@ -36,6 +42,71 @@ CORS(app, supports_credentials=True)
 UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GWDG_API_KEY = os.getenv("GWDG_API_KEY")
+GWDG_API_BASE = os.getenv("GWDG_API_BASE")
+
+
+@app.route("/api/health/llm", methods=["GET"])
+def llm_health():
+    """
+    Checks the health of the LLM models by attempting a lightweight completion.
+    Returns a map of model names to their status ('online' or 'offline').
+    """
+    gwdg_models_to_check = ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "ollama/gemma3", "mistral-large-instruct"]
+    openai_models_to_check = ["gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+    
+    health_status = {}
+    health_check_timeout = 5 # seconds for a health check ping
+
+    # Check OpenAI models
+    for model_name in openai_models_to_check:
+        try:
+            temp_llm = LLM(
+                provider='openai',
+                openai_model=model_name,
+                system_prompt="You are a helpful assistant.",
+                openai_api_key=OPENAI_API_KEY,
+                timeout=health_check_timeout
+            )
+            temp_llm.complete(prompt="ping")
+            health_status[model_name] = "online"
+        except (RuntimeError, requests.exceptions.RequestException) as e:
+            print(f"OpenAI model {model_name} offline: {e}")
+            health_status[model_name] = "offline"
+        except Exception as e:
+            print(f"OpenAI model {model_name} unknown error: {e}")
+            health_status[model_name] = "offline" # Catch all other errors
+
+    # Check GWDG models
+    for model_name in gwdg_models_to_check:
+        if not GWDG_API_BASE or not GWDG_API_KEY:
+            health_status[model_name] = "offline"
+            continue
+
+        try:
+            gwdg_params = {
+                'provider': 'gwdg',
+                'gwdg_model': model_name,
+                'system_prompt': "You are a helpful assistant.",
+                'timeout': health_check_timeout
+            }
+            if GWDG_API_KEY is not None:
+                gwdg_params['gwdg_api_key'] = GWDG_API_KEY
+            if GWDG_API_BASE is not None:
+                gwdg_params['gwdg_api_base'] = GWDG_API_BASE
+            
+            temp_llm = LLM(**gwdg_params)
+            temp_llm.complete(prompt="ping")
+            health_status[model_name] = "online"
+        except (RuntimeError, requests.exceptions.RequestException) as e:
+            print(f"GWDG model {model_name} offline: {e}")
+            health_status[model_name] = "offline"
+        except Exception as e:
+            print(f"GWDG model {model_name} unknown error: {e}")
+            health_status[model_name] = "offline" # Catch all other errors
+
+    return jsonify(health_status)
 
 
 @app.route("/api/refresh-prompt", methods=["POST"])
@@ -117,14 +188,15 @@ def chat():
         "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received."
     )
     avatar_id = request.args.get("avatar", "0")
+    data = request.get_json()
 
+    user_llm_provider = data.get("llmProvider")
+    user_llm_model = data.get("llmModel")
+
+    # Get the avatar's system prompt from the pre-loaded config
     system_prompt = avatar_llms[avatar_id].system_prompt
 
-    data = request.get_json()
-    prompt = data.get("prompt", "")
-    conversation = data.get("history", "")
-    print("Conversation history: ", conversation)
-    topic = data.get("topic", None)
+
     # if topic:
     #     print(f"→ Debate topic: {topic}")
     #     debate_prompt = debate_general_prompt.format(topic=topic, description=topic_descriptions[topic])
@@ -134,6 +206,9 @@ def chat():
     system_prompt_ = system_prompt
 
     chat_history = []
+
+    conversation = data.get("history", "")
+    print("Conversation history: ", conversation)
 
     chat_history = [
         {
@@ -171,13 +246,31 @@ def chat():
     messages_to_send = chat_history
     print("\n\nMessages to send: ", messages_to_send)
 
-    llm = avatar_llms[avatar_id]
+    # --- Instantiate LLM on-the-fly based on user's choice ---
+    if user_llm_provider == 'openai':
+        llm = LLM(
+            provider='openai',
+            openai_model=user_llm_model,
+            system_prompt=system_prompt_,
+            openai_api_key=OPENAI_API_KEY
+        )
+    elif user_llm_provider == 'gwdg':
+        gwdg_params = {
+            'provider': 'gwdg',
+            'gwdg_model': user_llm_model,
+            'system_prompt': system_prompt_
+        }
+        if GWDG_API_KEY is not None:
+            gwdg_params['gwdg_api_key'] = GWDG_API_KEY
+        if GWDG_API_BASE is not None:
+            gwdg_params['gwdg_api_base'] = GWDG_API_BASE
+        
+        llm = LLM(**gwdg_params)
+    else:
+        return jsonify({"error": f"Unknown LLM provider: {user_llm_provider}"}), 400
 
     chat_completion = llm.complete(
         messages_to_send,
-        # model= llm_choice,
-        # temperature=0.1
-        # top_p=0.7
     )
 
     response = chat_completion.text
@@ -204,8 +297,6 @@ def chat():
         )  #: ', chat_history+[{'role':'system', 'content':results}])
         chat_completion_2 = llm.complete(
             chat_history + [{"role": "assistant", "content": results}],
-            # model= llm_choice,
-            # top_p=0.8
         )
 
         response_2 = chat_completion_2.text
@@ -327,11 +418,6 @@ def experience_upload():
 
 
 import subprocess
-
-from dotenv import load_dotenv
-
-load_dotenv()
-print("Loaded from .env file.")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")

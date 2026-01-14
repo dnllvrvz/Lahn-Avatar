@@ -12,6 +12,10 @@ API_BASE = None #os.getenv("GWDG_API_BASE")
 
 llm_choice = 'gpt-4.1-mini' #'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
 
+class AvatarConfig:
+    def __init__(self, system_prompt):
+        self.system_prompt = system_prompt
+
 def generate_avatars_config(specific_avatar_id=None):
 	global avatars_path, avatar_llms, avatar_rag_tools
 	# In-memory storage (replace with DB later if you like)
@@ -41,20 +45,15 @@ def generate_avatars_config(specific_avatar_id=None):
 			else:
 				system_prompt = "Default system prompt." # Or handle error appropriately
 
-		llm = LLM(
-			provider="openai",
-			openai_api_key=API_KEY,
-			openai_model=llm_choice,
-			system_prompt=system_prompt
-		)
+		avatar_config = AvatarConfig(system_prompt=system_prompt)
 		rag_tools = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar.get('driveFolderId'))
 
 		if specific_avatar_id:
-			avatar_llms[avatar_id] = llm
+			avatar_llms[avatar_id] = avatar_config
 			avatar_rag_tools[avatar_id] = rag_tools
-			return llm, rag_tools
+			return avatar_config, rag_tools
 
-		avatar_llms[avatar_id] = llm
+		avatar_llms[avatar_id] = avatar_config
 		avatar_rag_tools[avatar_id] = rag_tools
 
 	return avatar_llms, avatar_rag_tools

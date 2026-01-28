@@ -11,8 +11,8 @@
     "id": "gwdg",
     "name": "JLU",
     "provider_key": "gwdg",
-    "api_base": "https://llm.hrz.uni-giessen.de/api",
+    "api_base": "https://api.hrz.uni-giessen.de",
     "api_key_env": "GWDG_API_KEY",
-    "models": ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "ollama/gemma3", "mistral-large-instruct"]
+    "models": ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "mistral-large-instruct", "hrz-chat-small", "gwdg/deepseek-r1", "llama-3.1-sauerkrautlm-70b-instruct"]
   }
 ]

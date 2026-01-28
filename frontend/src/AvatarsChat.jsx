@@ -312,6 +312,13 @@ export default function MultiAvatarChat() {
         setLlmOptions(newOptions);
       }
 
+      // Refresh health check to get status for new provider's models
+      const healthResp = await fetch("/api/health/llm");
+      if (healthResp.ok) {
+        const healthData = await healthResp.json();
+        setModelHealth(healthData);
+      }
+
       setProviderFormOpen(false);
 
       // Select the newly created provider and its first model

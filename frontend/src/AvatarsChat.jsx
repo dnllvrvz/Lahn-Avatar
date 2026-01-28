@@ -39,17 +39,20 @@ export default function MultiAvatarChat() {
   const [currentUserLlmProvider, setCurrentUserLlmProvider] = useState('openai');
   const [currentUserLlmModel, setCurrentUserLlmModel] = useState('gpt-4o-mini');
   const [modelHealth, setModelHealth] = useState({});
+  const [llmOptions, setLlmOptions] = useState({});
 
-  const llmOptions = {
-    openai: {
-      name: "OpenAI",
-      models: ["gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-    },
-    gwdg: {
-      name: "JLU",
-      models: ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "ollama/gemma3", "mistral-large-instruct"],
-    },
-  };
+  // --- LLM provider management state ---
+  const [providerFormOpen, setProviderFormOpen] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [providerError, setProviderError] = useState("");
+  const [providerForm, setProviderForm] = useState({
+    id: "",
+    name: "",
+    provider_key: "custom",
+    api_base: "",
+    api_key: "",
+    models: "",
+  });
 
   // === Initial load ===
   useEffect(() => {
@@ -65,6 +68,24 @@ export default function MultiAvatarChat() {
         }
       } catch (err) {
         console.error("Error loading avatars:", err);
+      }
+    })();
+
+    // Fetch LLM options
+    (async () => {
+      try {
+        const resp = await fetch("/api/llm-options");
+        if (!resp.ok) throw new Error("Failed to fetch LLM options");
+        const data = await resp.json();
+        setLlmOptions(data);
+        // Set initial model if available
+        const firstProvider = Object.keys(data)[0];
+        if (firstProvider && data[firstProvider].models.length > 0) {
+          setCurrentUserLlmProvider(firstProvider);
+          setCurrentUserLlmModel(data[firstProvider].models[0]);
+        }
+      } catch (err) {
+        console.error("Error loading LLM options:", err);
       }
     })();
 
@@ -224,6 +245,85 @@ export default function MultiAvatarChat() {
       setAvatarError("Could not save avatar. Please try again.");
     } finally {
       setAvatarSaving(false);
+    }
+  };
+
+  // === LLM Provider Management helpers ===
+
+  const openCreateProviderForm = () => {
+    setProviderForm({
+      id: "",
+      name: "",
+      provider_key: "custom",
+      api_base: "",
+      api_key: "",
+      models: "",
+    });
+    setProviderError("");
+    setProviderFormOpen(true);
+  };
+
+  const handleProviderFormChange = (field, value) => {
+    setProviderForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleProviderFormSubmit = async (e) => {
+    e.preventDefault();
+    setProviderError("");
+
+    if (!providerForm.name.trim()) {
+      setProviderError("Provider name is required.");
+      return;
+    }
+
+    if (!providerForm.models.trim()) {
+      setProviderError("At least one model is required (comma-separated).");
+      return;
+    }
+
+    setProviderSaving(true);
+    try {
+      const modelsList = providerForm.models.split(",").map(m => m.trim()).filter(m => m);
+
+      const resp = await fetch("/api/llm-providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: providerForm.id || undefined,
+          name: providerForm.name,
+          provider_key: providerForm.provider_key,
+          api_base: providerForm.api_base,
+          api_key: providerForm.api_key,
+          models: modelsList,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json();
+        throw new Error(errData.error || "Failed to create provider");
+      }
+
+      const newProvider = await resp.json();
+
+      // Refresh LLM options from server
+      const optionsResp = await fetch("/api/llm-options");
+      if (optionsResp.ok) {
+        const newOptions = await optionsResp.json();
+        setLlmOptions(newOptions);
+      }
+
+      setProviderFormOpen(false);
+
+      // Select the newly created provider and its first model
+      setCurrentUserLlmProvider(newProvider.id);
+      if (newProvider.models && newProvider.models.length > 0) {
+        setCurrentUserLlmModel(newProvider.models[0]);
+      }
+    } catch (err) {
+      console.error(err);
+      setProviderError(err.message || "Could not save provider. Please try again.");
+    } finally {
+      setProviderSaving(false);
     }
   };
 
@@ -417,6 +517,13 @@ export default function MultiAvatarChat() {
                         <option key={key} value={key}>{llmOptions[key].name}</option>
                     ))}
                 </select>
+                <Button
+                  variant="outline"
+                  className="font-poetic text-xs"
+                  onClick={openCreateProviderForm}
+                >
+                  + New Provider
+                </Button>
             </div>
             <div className="flex items-center space-x-2">
                 <label className="font-poetic text-stone-700">Model:</label>
@@ -425,7 +532,7 @@ export default function MultiAvatarChat() {
                     value={currentUserLlmModel}
                     onChange={e => setCurrentUserLlmModel(e.target.value)}
                 >
-                    {llmOptions[currentUserLlmProvider].models.map(model => {
+                    {llmOptions[currentUserLlmProvider]?.models.map(model => {
                         const status = modelHealth[model];
                         let indicator = '⚪'; // Default: Unknown
                         if (status === 'online') {
@@ -687,6 +794,96 @@ export default function MultiAvatarChat() {
                     : avatarFormMode === "create"
                       ? "Create"
                       : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* LLM Provider create/edit panel */}
+      {providerFormOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h2 className="text-xl font-poetic mb-4">
+              Add New LLM Provider
+            </h2>
+            <form onSubmit={handleProviderFormSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1">Provider name</label>
+                <Input
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={providerForm.name}
+                  onChange={e => handleProviderFormChange("name", e.target.value)}
+                  placeholder="e.g. Anthropic, Azure OpenAI, HuggingFace..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">
+                  API base URL
+                </label>
+                <Input
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={providerForm.api_base}
+                  onChange={e => handleProviderFormChange("api_base", e.target.value)}
+                  placeholder="https://api.example.com/v1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">
+                  API key
+                </label>
+                <Input
+                  type="password"
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={providerForm.api_key}
+                  onChange={e => handleProviderFormChange("api_key", e.target.value)}
+                  placeholder="sk-..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">
+                  Models (comma-separated)
+                </label>
+                <Input
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={providerForm.models}
+                  onChange={e => handleProviderFormChange("models", e.target.value)}
+                  placeholder="claude-3-opus, claude-3-sonnet, claude-3-haiku"
+                />
+              </div>
+
+              {providerError && (
+                <div className="text-sm text-red-600">{providerError}</div>
+              )}
+
+              <div className="flex justify-end gap-2 mt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setProviderFormOpen(false)}
+                  disabled={providerSaving}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={providerSaving}>
+                  {providerSaving ? "Adding..." : "Add Provider"}
                 </Button>
               </div>
             </form>

@@ -45,6 +45,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GWDG_API_KEY = os.getenv("GWDG_API_KEY")
 GWDG_API_BASE = os.getenv("GWDG_API_BASE")
+LLM_PROVIDERS_PATH = "llm_providers.json"
 
 
 @app.route("/api/health/llm", methods=["GET"])
@@ -53,58 +54,69 @@ def llm_health():
     Checks the health of the LLM models by attempting a lightweight completion.
     Returns a map of model names to their status ('online' or 'offline').
     """
-    gwdg_models_to_check = ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "ollama/gemma3", "mistral-large-instruct"]
-    openai_models_to_check = ["gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
-    
+    # Load providers from config file
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+
     health_status = {}
     health_check_timeout = 5 # seconds for a health check ping
 
-    # Check OpenAI models
-    for model_name in openai_models_to_check:
-        try:
-            temp_llm = LLM(
-                provider='openai',
-                openai_model=model_name,
-                system_prompt="You are a helpful assistant.",
-                openai_api_key=OPENAI_API_KEY,
-                timeout=health_check_timeout
-            )
-            temp_llm.complete(prompt="ping")
-            health_status[model_name] = "online"
-        except (RuntimeError, requests.exceptions.RequestException) as e:
-            print(f"OpenAI model {model_name} offline: {e}")
-            health_status[model_name] = "offline"
-        except Exception as e:
-            print(f"OpenAI model {model_name} unknown error: {e}")
-            health_status[model_name] = "offline" # Catch all other errors
+    for provider in providers:
+        provider_key = provider["provider_key"]
+        api_key_env = provider.get("api_key_env", "")
+        api_base = provider.get("api_base", "")
 
-    # Check GWDG models
-    for model_name in gwdg_models_to_check:
-        if not GWDG_API_BASE or not GWDG_API_KEY:
-            health_status[model_name] = "offline"
-            continue
+        # Load API key from environment variable
+        api_key = os.getenv(api_key_env, "") if api_key_env else ""
 
-        try:
-            gwdg_params = {
-                'provider': 'gwdg',
-                'gwdg_model': model_name,
-                'system_prompt': "You are a helpful assistant.",
-                'timeout': health_check_timeout
-            }
-            if GWDG_API_KEY is not None:
-                gwdg_params['gwdg_api_key'] = GWDG_API_KEY
-            if GWDG_API_BASE is not None:
-                gwdg_params['gwdg_api_base'] = GWDG_API_BASE
-            
-            temp_llm = LLM(**gwdg_params)
-            temp_llm.complete(prompt="ping")
-            health_status[model_name] = "online"
-        except (RuntimeError, requests.exceptions.RequestException) as e:
-            print(f"GWDG model {model_name} offline: {e}")
-            health_status[model_name] = "offline"
-        except Exception as e:
-            print(f"GWDG model {model_name} unknown error: {e}")
-            health_status[model_name] = "offline" # Catch all other errors
+        # Special handling for legacy env vars
+        if not api_key:
+            if provider_key == "openai":
+                api_key = OPENAI_API_KEY
+            elif provider_key == "gwdg":
+                api_key = GWDG_API_KEY
+
+        if not api_base:
+            if provider_key == "gwdg" and GWDG_API_BASE:
+                api_base = GWDG_API_BASE
+
+        for model_name in provider.get("models", []):
+            try:
+                llm_params = {
+                    'provider': provider_key,
+                    'system_prompt': "You are a helpful assistant.",
+                    'timeout': health_check_timeout
+                }
+
+                # Set provider-specific parameters
+                if provider_key == "openai":
+                    llm_params['openai_model'] = model_name
+                    llm_params['openai_api_key'] = api_key
+                    if api_base:
+                        llm_params['openai_api_base'] = api_base
+                elif provider_key == "gwdg":
+                    llm_params['gwdg_model'] = model_name
+                    if api_key:
+                        llm_params['gwdg_api_key'] = api_key
+                    if api_base:
+                        llm_params['gwdg_api_base'] = api_base
+                else:
+                    # For custom providers, try to use gwdg-style interface
+                    llm_params['provider'] = 'gwdg'
+                    llm_params['gwdg_model'] = model_name
+                    if api_key:
+                        llm_params['gwdg_api_key'] = api_key
+                    if api_base:
+                        llm_params['gwdg_api_base'] = api_base
+
+                temp_llm = LLM(**llm_params)
+                temp_llm.complete(prompt="ping")
+                health_status[model_name] = "online"
+            except (RuntimeError, requests.exceptions.RequestException) as e:
+                print(f"Model {model_name} ({provider_key}) offline: {e}")
+                health_status[model_name] = "offline"
+            except Exception as e:
+                print(f"Model {model_name} ({provider_key}) unknown error: {e}")
+                health_status[model_name] = "offline"
 
     return jsonify(health_status)
 
@@ -247,27 +259,54 @@ def chat():
     print("\n\nMessages to send: ", messages_to_send)
 
     # --- Instantiate LLM on-the-fly based on user's choice ---
-    if user_llm_provider == 'openai':
-        llm = LLM(
-            provider='openai',
-            openai_model=user_llm_model,
-            system_prompt=system_prompt_,
-            openai_api_key=OPENAI_API_KEY
-        )
-    elif user_llm_provider == 'gwdg':
-        gwdg_params = {
+    # Load provider config
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    provider = next((p for p in providers if p["id"] == user_llm_provider), None)
+
+    if not provider:
+        return jsonify({"error": f"Unknown LLM provider: {user_llm_provider}"}), 400
+
+    provider_key = provider["provider_key"]
+    api_key_env = provider.get("api_key_env", "")
+    api_base = provider.get("api_base", "")
+
+    # Load API key from environment variable
+    api_key = os.getenv(api_key_env, "") if api_key_env else ""
+
+    # Special handling for legacy env vars
+    if not api_key:
+        if provider_key == "openai":
+            api_key = OPENAI_API_KEY
+        elif provider_key == "gwdg":
+            api_key = GWDG_API_KEY
+
+    if not api_base:
+        if provider_key == "gwdg" and GWDG_API_BASE:
+            api_base = GWDG_API_BASE
+
+    # Build LLM parameters based on provider type
+    if provider_key == 'openai':
+        llm_params = {
+            'provider': 'openai',
+            'openai_model': user_llm_model,
+            'system_prompt': system_prompt_,
+            'openai_api_key': api_key
+        }
+        if api_base:
+            llm_params['openai_api_base'] = api_base
+        llm = LLM(**llm_params)
+    else:
+        # For GWDG and custom providers (use GWDG-style interface)
+        llm_params = {
             'provider': 'gwdg',
             'gwdg_model': user_llm_model,
             'system_prompt': system_prompt_
         }
-        if GWDG_API_KEY is not None:
-            gwdg_params['gwdg_api_key'] = GWDG_API_KEY
-        if GWDG_API_BASE is not None:
-            gwdg_params['gwdg_api_base'] = GWDG_API_BASE
-        
-        llm = LLM(**gwdg_params)
-    else:
-        return jsonify({"error": f"Unknown LLM provider: {user_llm_provider}"}), 400
+        if api_key:
+            llm_params['gwdg_api_key'] = api_key
+        if api_base:
+            llm_params['gwdg_api_base'] = api_base
+        llm = LLM(**llm_params)
 
     chat_completion = llm.complete(
         messages_to_send,
@@ -647,6 +686,201 @@ def avatar_detail(avatar_id):
 
 
 app.register_blueprint(avatars_bp)
+
+
+# LLM Providers Management
+llm_providers_bp = Blueprint("llm_providers", __name__)
+
+
+@llm_providers_bp.route("/api/llm-providers", methods=["GET", "POST"])
+def llm_providers_collection():
+    """
+    GET /api/llm-providers -> list all LLM providers
+    POST /api/llm-providers -> create a new LLM provider
+    """
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+
+    if request.method == "GET":
+        return jsonify(providers), 200
+
+    # POST
+    data = request.get_json() or {}
+
+    provider_id = (data.get("id") or "").strip()
+    name = (data.get("name") or "").strip()
+    provider_key = (data.get("provider_key") or "custom").strip()
+    api_base = data.get("api_base") or ""
+    api_key = data.get("api_key") or ""
+    models = data.get("models") or []
+
+    if not name:
+        return jsonify({"error": "Provider 'name' is required."}), 400
+
+    if not provider_id:
+        # Generate ID from name if not provided
+        provider_id = name.lower().replace(" ", "-").replace("/", "-")
+
+    # Check if ID already exists
+    if any(p["id"] == provider_id for p in providers):
+        return jsonify({"error": f"Provider with id '{provider_id}' already exists."}), 400
+
+    if not models:
+        return jsonify({"error": "At least one model is required."}), 400
+
+    print(f"\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nReceived Request to Create New LLM Provider: {name}")
+
+    # Generate env var name and write API key to .env if provided
+    api_key_env = None
+    if api_key:
+        # Generate env var name: PROVIDER_ID_API_KEY (e.g., ANTHROPIC_API_KEY)
+        api_key_env = f"{provider_id.upper().replace('-', '_')}_API_KEY"
+
+        # Write to .env file
+        env_path = ".env"
+        try:
+            # Read existing .env content
+            env_content = ""
+            if os.path.exists(env_path):
+                with open(env_path, "r") as f:
+                    env_content = f.read()
+
+            # Check if env var already exists
+            if f"{api_key_env}=" in env_content:
+                # Update existing line
+                lines = env_content.split('\n')
+                lines = [line if not line.startswith(f"{api_key_env}=") else f"{api_key_env}={api_key}" for line in lines]
+                env_content = '\n'.join(lines)
+            else:
+                # Append new line
+                if env_content and not env_content.endswith('\n'):
+                    env_content += '\n'
+                env_content += f"{api_key_env}={api_key}\n"
+
+            # Write back to .env
+            with open(env_path, "w") as f:
+                f.write(env_content)
+
+            print(f"API key written to .env as {api_key_env}")
+
+            # Reload environment variables
+            load_dotenv(override=True)
+        except Exception as e:
+            print(f"Warning: Could not write to .env file: {e}")
+            # Continue without storing the key
+            api_key_env = None
+
+    provider = {
+        "id": provider_id,
+        "name": name,
+        "provider_key": provider_key,
+        "api_base": api_base,
+        "models": models if isinstance(models, list) else [m.strip() for m in models.split(",")],
+    }
+
+    # Only add api_key_env if a key was provided and successfully stored
+    if api_key_env:
+        provider["api_key_env"] = api_key_env
+
+    providers.append(provider)
+    print("LLM Providers after modification: ", providers)
+    json.dump(providers, open(LLM_PROVIDERS_PATH, "w"))
+    return jsonify(provider), 201
+
+
+@llm_providers_bp.route("/api/llm-providers/<provider_id>", methods=["PUT", "DELETE"])
+def llm_provider_detail(provider_id):
+    """
+    PUT /api/llm-providers/<provider_id> -> update an existing LLM provider
+    DELETE /api/llm-providers/<provider_id> -> delete an LLM provider
+    """
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    provider = next((p for p in providers if p["id"] == provider_id), None)
+
+    if not provider:
+        return jsonify({"error": "Provider not found."}), 404
+
+    if request.method == "DELETE":
+        providers = [p for p in providers if p["id"] != provider_id]
+        json.dump(providers, open(LLM_PROVIDERS_PATH, "w"))
+        return jsonify({"status": "success", "message": f"Provider {provider_id} deleted."}), 200
+
+    # PUT
+    data = request.get_json() or {}
+
+    # Handle API key update
+    if "api_key" in data and data["api_key"] is not None:
+        api_key = data["api_key"]
+
+        if api_key:
+            # Generate env var name
+            api_key_env = f"{provider_id.upper().replace('-', '_')}_API_KEY"
+
+            # Write to .env file
+            env_path = ".env"
+            try:
+                # Read existing .env content
+                env_content = ""
+                if os.path.exists(env_path):
+                    with open(env_path, "r") as f:
+                        env_content = f.read()
+
+                # Check if env var already exists
+                if f"{api_key_env}=" in env_content:
+                    # Update existing line
+                    lines = env_content.split('\n')
+                    lines = [line if not line.startswith(f"{api_key_env}=") else f"{api_key_env}={api_key}" for line in lines]
+                    env_content = '\n'.join(lines)
+                else:
+                    # Append new line
+                    if env_content and not env_content.endswith('\n'):
+                        env_content += '\n'
+                    env_content += f"{api_key_env}={api_key}\n"
+
+                # Write back to .env
+                with open(env_path, "w") as f:
+                    f.write(env_content)
+
+                print(f"API key updated in .env as {api_key_env}")
+
+                # Reload environment variables
+                load_dotenv(override=True)
+
+                # Update provider with env var name
+                provider["api_key_env"] = api_key_env
+            except Exception as e:
+                print(f"Warning: Could not write to .env file: {e}")
+        else:
+            # If api_key is empty string, remove the env var reference
+            if "api_key_env" in provider:
+                del provider["api_key_env"]
+
+    # Update other fields (except api_key which we handle above)
+    for field in ["name", "provider_key", "api_base", "models"]:
+        if field in data and data[field] is not None:
+            provider[field] = data[field]
+
+    print("LLM Providers after modification: ", providers)
+    json.dump(providers, open(LLM_PROVIDERS_PATH, "w"))
+    return jsonify(provider), 200
+
+
+@llm_providers_bp.route("/api/llm-options", methods=["GET"])
+def llm_options():
+    """
+    GET /api/llm-options -> returns providers in dropdown-friendly format
+    Format: { "provider_id": { "name": "Display Name", "models": [...] }, ... }
+    """
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    options = {}
+    for p in providers:
+        options[p["id"]] = {
+            "name": p["name"],
+            "models": p["models"],
+        }
+    return jsonify(options), 200
+
+
+app.register_blueprint(llm_providers_bp)
 
 
 if __name__ == "__main__":

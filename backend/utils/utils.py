@@ -848,6 +848,7 @@ def RAG(avatar_rag_tools, query, translated=False):  # , text_index_query=None):
     if translated == False:  # text_index_query==None:
         en_keywords, de_keywords = extract_keywords(query)
     else:
+        print(f"DEBUG: RAG function - translated=True, query='{query}'")
         en_keywords, de_keywords = [
             word.split(", ") for word in query.split("|")
         ]  # extract_keywords(text_index_query)

@@ -5,6 +5,8 @@ lahn_env/
 backend/env/
 backend/avatars_context/
 backend/lahn_index/
+backend/llm_providers.json
+
 
 backups/
 

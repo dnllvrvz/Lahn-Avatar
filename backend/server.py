@@ -205,6 +205,14 @@ def chat():
     user_llm_provider = data.get("llmProvider")
     user_llm_model = data.get("llmModel")
 
+    # Track if user explicitly selected provider or if we're using defaults
+    using_defaults = False
+    if not user_llm_provider or not user_llm_model:
+        print("No LLM provider/model specified, defaulting to JLU with OpenAI fallback")
+        user_llm_provider = "gwdg"
+        user_llm_model = "gwdg/gemma-3-27b-it"
+        using_defaults = True
+
     # Get the avatar's system prompt from the pre-loaded config
     system_prompt = avatar_llms[avatar_id].system_prompt
 
@@ -308,11 +316,26 @@ def chat():
             llm_params['gwdg_api_base'] = api_base
         llm = LLM(**llm_params)
 
-    chat_completion = llm.complete(
-        messages_to_send,
-    )
-
-    response = chat_completion.text
+    # Try completion with fail-fast fallback to OpenAI if using defaults
+    try:
+        chat_completion = llm.complete(messages_to_send)
+        response = chat_completion.text
+    except (RuntimeError, requests.exceptions.RequestException) as e:
+        # If we're using defaults and GWDG fails, retry with OpenAI
+        if using_defaults and provider_key == 'gwdg':
+            print(f"GWDG failed with error: {e}")
+            print("Retrying with OpenAI fallback...")
+            llm = LLM(
+                provider='openai',
+                openai_model='gpt-4o-mini',
+                system_prompt=system_prompt_,
+                openai_api_key=OPENAI_API_KEY
+            )
+            chat_completion = llm.complete(messages_to_send)
+            response = chat_completion.text
+        else:
+            # Re-raise if user explicitly selected this provider
+            raise
 
     print("\nAvatar response: ", response)
 
@@ -468,7 +491,9 @@ def voice_chat():
     print(
         "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nVoice Chat request received."
     )
-    global system_prompt
+
+    # Get system prompt from avatar config
+    system_prompt = avatar_llms["0"].system_prompt
 
     # Do away with function-related instructions, for now.
     index = system_prompt.find("You also have access to sensory data")

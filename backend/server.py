@@ -53,13 +53,17 @@ def llm_health():
     """
     Checks the health of the LLM models by attempting a lightweight completion.
     Returns a map of model names to their status ('online' or 'offline').
+    Uses parallel health checks for better performance.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     # Load providers from config file
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
 
-    health_status = {}
     health_check_timeout = 5 # seconds for a health check ping
 
+    # Build list of all model checks to run
+    model_checks = []
     for provider in providers:
         provider_key = provider["provider_key"]
         api_key_env = provider.get("api_key_env", "")
@@ -80,43 +84,73 @@ def llm_health():
                 api_base = GWDG_API_BASE
 
         for model_name in provider.get("models", []):
-            try:
-                llm_params = {
-                    'provider': provider_key,
-                    'system_prompt': "You are a helpful assistant.",
-                    'timeout': health_check_timeout
-                }
+            model_checks.append({
+                "model_name": model_name,
+                "provider_key": provider_key,
+                "api_key": api_key,
+                "api_base": api_base,
+                "timeout": health_check_timeout
+            })
 
-                # Set provider-specific parameters
-                if provider_key == "openai":
-                    llm_params['openai_model'] = model_name
-                    llm_params['openai_api_key'] = api_key
-                    if api_base:
-                        llm_params['openai_api_base'] = api_base
-                elif provider_key == "gwdg":
-                    llm_params['gwdg_model'] = model_name
-                    if api_key:
-                        llm_params['gwdg_api_key'] = api_key
-                    if api_base:
-                        llm_params['gwdg_api_base'] = api_base
-                else:
-                    # For custom providers, try to use gwdg-style interface
-                    llm_params['provider'] = 'gwdg'
-                    llm_params['gwdg_model'] = model_name
-                    if api_key:
-                        llm_params['gwdg_api_key'] = api_key
-                    if api_base:
-                        llm_params['gwdg_api_base'] = api_base
+    # Function to check a single model
+    def check_model(check_data):
+        model_name = check_data["model_name"]
+        provider_key = check_data["provider_key"]
+        api_key = check_data["api_key"]
+        api_base = check_data["api_base"]
+        timeout = check_data["timeout"]
 
-                temp_llm = LLM(**llm_params)
-                temp_llm.complete(prompt="ping")
-                health_status[model_name] = "online"
-            except (RuntimeError, requests.exceptions.RequestException) as e:
-                print(f"Model {model_name} ({provider_key}) offline: {e}")
-                health_status[model_name] = "offline"
-            except Exception as e:
-                print(f"Model {model_name} ({provider_key}) unknown error: {e}")
-                health_status[model_name] = "offline"
+        try:
+            llm_params = {
+                'provider': provider_key,
+                'system_prompt': "You are a helpful assistant.",
+                'timeout': timeout
+            }
+
+            # Set provider-specific parameters
+            if provider_key == "openai":
+                llm_params['openai_model'] = model_name
+                llm_params['openai_api_key'] = api_key
+                if api_base:
+                    llm_params['openai_api_base'] = api_base
+            elif provider_key == "gwdg":
+                llm_params['gwdg_model'] = model_name
+                if api_key:
+                    llm_params['gwdg_api_key'] = api_key
+                if api_base:
+                    llm_params['gwdg_api_base'] = api_base
+            else:
+                # For custom providers, try to use gwdg-style interface
+                llm_params['provider'] = 'gwdg'
+                llm_params['gwdg_model'] = model_name
+                if api_key:
+                    llm_params['gwdg_api_key'] = api_key
+                if api_base:
+                    llm_params['gwdg_api_base'] = api_base
+
+            temp_llm = LLM(**llm_params)
+            temp_llm.complete(prompt="ping")
+            return (model_name, "online")
+        except (RuntimeError, requests.exceptions.RequestException) as e:
+            print(f"Model {model_name} ({provider_key}) offline: {e}")
+            return (model_name, "offline")
+        except Exception as e:
+            print(f"Model {model_name} ({provider_key}) unknown error: {e}")
+            return (model_name, "offline")
+
+    # Run all health checks in parallel
+    health_status = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all checks
+        future_to_model = {
+            executor.submit(check_model, check_data): check_data["model_name"]
+            for check_data in model_checks
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_model):
+            model_name, status = future.result()
+            health_status[model_name] = status
 
     return jsonify(health_status)
 

@@ -88,19 +88,24 @@ export default function MultiAvatarChat() {
         console.error("Error loading LLM options:", err);
       }
     })();
+  }, []);
 
-    // Fetch LLM health
-    (async () => {
-        try {
-            const resp = await fetch("/api/health/llm");
-            if (!resp.ok) throw new Error("Failed to fetch LLM health");
-            const data = await resp.json();
-            setModelHealth(data);
-            console.log("LLM Health Status:", data); // Add console log here
-        } catch (err) {
-            console.error("Error loading LLM health:", err);
-        }
-    })();
+  // === Background health check (non-blocking) ===
+  useEffect(() => {
+    const fetchHealthStatus = async () => {
+      try {
+        const resp = await fetch("/api/health/llm");
+        if (!resp.ok) throw new Error("Failed to fetch LLM health");
+        const data = await resp.json();
+        setModelHealth(data);
+        console.log("LLM Health Status loaded:", data);
+      } catch (err) {
+        console.error("Error loading LLM health:", err);
+      }
+    };
+
+    // Fetch health status in background after component mounts
+    fetchHealthStatus();
   }, []);
 
 

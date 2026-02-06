@@ -23,6 +23,8 @@ export default function MultiAvatarChat() {
     systemPromptUrl: "",
     contextDocsUrl: "",
     sensorApiUrl: "",
+    sensorDescription: "",
+    ragLanguages: "en, de",
   });
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
@@ -178,6 +180,7 @@ export default function MultiAvatarChat() {
       systemPromptUrl: "",
       contextDocsUrl: "",
       sensorApiUrl: "",
+      sensorDescription: "",
     });
     setAvatarError("");
     setAvatarFormOpen(true);
@@ -191,6 +194,10 @@ export default function MultiAvatarChat() {
       systemPromptUrl: avatar.systemPromptUrl || "",
       contextDocsUrl: avatar.contextDocsUrl || "",
       sensorApiUrl: avatar.sensorApiUrl || "",
+      sensorDescription: avatar.sensorDescription || "",
+      ragLanguages: Array.isArray(avatar.ragLanguages)
+        ? avatar.ragLanguages.join(", ")
+        : (avatar.ragLanguages || "en, de"),
     });
     setAvatarError("");
     setAvatarFormOpen(true);
@@ -220,6 +227,8 @@ export default function MultiAvatarChat() {
             systemPromptUrl: avatarForm.systemPromptUrl,
             contextDocsUrl: avatarForm.contextDocsUrl,
             sensorApiUrl: avatarForm.sensorApiUrl,
+            sensorDescription: avatarForm.sensorDescription,
+            ragLanguages: avatarForm.ragLanguages,
           }),
         });
         if (!resp.ok) throw new Error("Failed to create avatar");
@@ -235,6 +244,8 @@ export default function MultiAvatarChat() {
             systemPromptUrl: avatarForm.systemPromptUrl,
             contextDocsUrl: avatarForm.contextDocsUrl,
             sensorApiUrl: avatarForm.sensorApiUrl,
+            sensorDescription: avatarForm.sensorDescription,
+            ragLanguages: avatarForm.ragLanguages,
           }),
         });
         if (!resp.ok) throw new Error("Failed to update avatar");
@@ -783,6 +794,39 @@ export default function MultiAvatarChat() {
                   onChange={e => handleAvatarFormChange("sensorApiUrl", e.target.value)}
                   placeholder="https://…/sensors"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">
+                  Sensor data description
+                </label>
+                <Input
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={avatarForm.sensorDescription}
+                  onChange={e => handleAvatarFormChange("sensorDescription", e.target.value)}
+                  placeholder="e.g. Provides live pH, temperature, dissolved oxygen, and conductivity data"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">
+                  What languages are your RAG documents in?
+                </label>
+                <Input
+                  className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    color: '#000000',
+                  }}
+                  value={avatarForm.ragLanguages}
+                  onChange={e => handleAvatarFormChange("ragLanguages", e.target.value)}
+                  placeholder="en, de, fr, pt"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter language codes separated by commas. This helps optimize RAG queries for your document languages.
+                </p>
               </div>
 
               {avatarError && (

@@ -15,10 +15,10 @@ from utils.llm_tooling import LLM
 from utils.avatar_setup import (
     avatar_llms,
     avatar_rag_tools,
+    avatar_sensor_tools,
     avatars_path,
     generate_avatars_config,
     llm_choice,
-    sensor_query_tool,
     text_query_llm,
 )
 from utils.processing_pipelines import OpenAIRealtimeClient
@@ -27,6 +27,7 @@ from utils.utils import (
     build_or_load_index,
     fetch_system_prompt_from_gdoc,
     fetch_text_index_query,
+    generate_context_aware_keywords_for_multilingual_text_index_search,
     format_history_as_string,
     pcm_to_wav_bytes,
     prepare_query_engines,
@@ -177,9 +178,10 @@ def refresh_prompt():
     try:
         fetch_system_prompt_from_gdoc(avatar_id, system_prompt_url)
         # Reload the specific avatar's config
-        llm, _ = generate_avatars_config(specific_avatar_id=avatar_id)
+        llm, _, sensor_tool = generate_avatars_config(specific_avatar_id=avatar_id)
         if llm:
             avatar_llms[avatar_id] = llm
+            avatar_sensor_tools[avatar_id] = sensor_tool
         else:
             return jsonify({"error": "Failed to reload avatar configuration."}), 500
 
@@ -281,21 +283,57 @@ def chat():
 
     chat_history.insert(0, {"role": "system", "content": system_prompt_})
 
-    if avatar_rag_tools[avatar_id] != [None, None, None, None]:
+    # === RAG Context Injection ===
+    if avatar_rag_tools[avatar_id] != [None, None, None, None, ['en', 'de']]:
         print("Obtaining information for the LLM...")
-        # query = 'Provide context needed to address the most recent message in this conversation. Your job is not to predict what any party will say, but to provide information from the context, which is relevant for them to make their decision. That is where your job stops. : '+ format_history_as_string(conversation)
-        text_index_query = fetch_text_index_query(text_query_llm, conversation)
-        context = RAG(
-            avatar_rag_tools[avatar_id], text_index_query, translated=True
-        )  # query, text_index_query = text_index_query)
+
+        # Get RAG languages for this avatar
+        rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
+
+        # Analyze conversation context and generate keywords for multilingual text-index search
+        keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
+            text_query_llm, conversation, rag_languages
+        )
+
+        context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
 
         total_context = context
-        # messages_to_send = chat_history+[{'role':'assistant', 'content':'Here is relevant information about the Lahn (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn\'t, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there\'s no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user\'s last message in? Make sure to respond in the same language.): '+total_context + ' . You can call analyze_sensor_data() if environmental data readings are relevant to the user\'s query.'}]
         chat_history[-1]["content"] += (
             "The following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.): "
             + total_context
-            + " . You can call analyze_sensor_data() if environmental data readings are relevant to the user's query."
         )
+
+    # === Sensor Tool Function Schema ===
+    if avatar_sensor_tools.get(avatar_id):
+        print("Adding sensor tool function schema to prompt...")
+
+        # Get sensor description from avatar config
+        avatars = json.load(open(avatars_path, "r"))
+        avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+        sensor_description = avatar.get("sensorDescription", "") if avatar else ""
+
+        # JSON-escape the description for proper embedding
+        import json as json_module
+        escaped_description = json_module.dumps(sensor_description, ensure_ascii=False)
+
+        function_schema = f"""
+FUNCTIONS:
+You have access to functions.
+
+IMPORTANT: Only call this function when the user explicitly asks for environmental data analysis or queries that require sensor readings (temperature, pH, air quality, water quality, weather readings, etc.).
+
+You SHOULD NOT include any other text in the response if you call a function.
+
+If you decide to invoke the function, you MUST put it in the format:
+
+[
+  {{
+    "name": "analyze_sensor_data",
+    "description": {escaped_description}
+  }}
+]
+"""
+        chat_history[-1]["content"] += function_schema
 
     messages_to_send = chat_history
     print("\n\nMessages to send: ", messages_to_send)
@@ -378,33 +416,49 @@ def chat():
         response = response[response.find('user_query="') + 12 :]
         query = response[: response.find('")')]
         print("Query: ", query)
-        # analysis = str(api_tool(query))
-        analysis = str(sensor_query_tool(query))
-        print("Analysis: ", analysis)
-        results = (
-            "\nHere is the output of analyze_sensor_data(): "
-            + analysis
-            + " Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user's last message in? Make sure to respond in the same language."
-        )
 
-        # if len(results)>0:
-        print(
-            "Passing analysis results to LLM.."
-        )  #: ', chat_history+[{'role':'system', 'content':results}])
-        chat_completion_2 = llm.complete(
-            chat_history + [{"role": "assistant", "content": results}],
-        )
+        # Get the sensor tool for this specific avatar
+        sensor_tool = avatar_sensor_tools.get(avatar_id)
 
-        response_2 = chat_completion_2.text
-        if "analyze_sensor_data" in response_2:
-            print("Duplicate function call for some reason")
-            response_2 = analysis
+        if sensor_tool:
+            analysis = str(sensor_tool(query))
+            print("Analysis: ", analysis)
+            results = (
+                "\nHere is the output of analyze_sensor_data(): "
+                + analysis
+                + " Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user's last message in? Make sure to respond in the same language."
+            )
 
-        response_2 = response_2.replace("*", "")
+            # if len(results)>0:
+            print(
+                "Passing analysis results to LLM.."
+            )  #: ', chat_history+[{'role':'system', 'content':results}])
+            chat_completion_2 = llm.complete(
+                chat_history + [{"role": "assistant", "content": results}],
+            )
 
-        print("Avatar response after getting sensor data:", response_2)
+            response_2 = chat_completion_2.text
+            if "analyze_sensor_data" in response_2:
+                print("Duplicate function call for some reason")
+                response_2 = analysis
 
-        return jsonify({"reply": response_2})
+            response_2 = response_2.replace("*", "")
+
+            print("Avatar response after getting sensor data:", response_2)
+
+            return jsonify({"reply": response_2})
+        else:
+            # Avatar has no sensor tool configured
+            print(f"No sensor tool available for avatar {avatar_id}")
+            results = (
+                "\nNote: Sensor data is not available for this avatar. "
+                "Please ask about other aspects of the Lahn or choose a different avatar."
+            )
+            chat_completion_2 = llm.complete(
+                chat_history + [{"role": "assistant", "content": results}],
+            )
+            response_2 = chat_completion_2.text.replace("*", "")
+            return jsonify({"reply": response_2})
 
     response = response.replace("*", "")
 
@@ -566,7 +620,8 @@ def voice_chat():
         # Dispatch
         if pipeline == "OpenAI gpt-realtime":
             client = OpenAIRealtimeClient(
-                OPENAI_API_KEY, model="gpt-realtime", prompt=system_prompt_
+                OPENAI_API_KEY, model="gpt-realtime", prompt=system_prompt_,
+                sensor_tool=avatar_sensor_tools.get("0")
             )
             response_audio, elapsed, cost_info = client.process_audio(audio_bytes)
         # elif pipeline == "OpenAI gpt4o":
@@ -615,6 +670,7 @@ def stream(ws):
         model="gpt-realtime",
         prompt=system_prompt_,
         rag_tools=avatar_rag_tools["0"],
+        sensor_tool=avatar_sensor_tools.get("0"),
         streaming=True,
         ws_client=ws,
     )
@@ -672,6 +728,14 @@ def avatars_collection():
     system_prompt_url = data.get("systemPromptUrl") or ""
     context_docs_url = data.get("contextDocsUrl") or ""
     sensor_api_url = data.get("sensorApiUrl") or ""
+    sensor_description = data.get("sensorDescription") or ""
+    rag_languages = data.get("ragLanguages") or ""
+
+    # Parse rag_languages: comma-separated string to list
+    if rag_languages:
+        rag_languages_list = [lang.strip() for lang in rag_languages.split(",") if lang.strip()]
+    else:
+        rag_languages_list = ["en", "de"]  # Default
 
     if not name:
         return jsonify({"error": "Avatar 'name' is required."}), 400
@@ -709,12 +773,14 @@ def avatars_collection():
         "contextDocsUrl": context_docs_url,
         "driveFolderId": drive_folder_id,
         "sensorApiUrl": sensor_api_url,
+        "sensorDescription": sensor_description,
+        "ragLanguages": rag_languages_list,
     }
 
     avatars.append(avatar)
     print("Avatars after modification: ", avatars)
     json.dump(avatars, open(avatars_path, "w"))
-    avatar_llms, avatar_rag_tools = generate_avatars_config()
+    avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
     # Frontend expects the created avatar object back
     return jsonify(avatar), 201
 
@@ -734,13 +800,21 @@ def avatar_detail(avatar_id):
         return jsonify({"error": "Avatar not found."}), 404
 
     # Only update fields present in request
-    for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl"]:
+    for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl", "sensorDescription"]:
         if field in data and data[field] is not None:
             avatar[field] = data[field]
 
+    # Handle ragLanguages separately (comma-separated string to list)
+    if "ragLanguages" in data and data["ragLanguages"] is not None:
+        rag_languages = data["ragLanguages"]
+        if rag_languages:
+            avatar["ragLanguages"] = [lang.strip() for lang in rag_languages.split(",") if lang.strip()]
+        else:
+            avatar["ragLanguages"] = ["en", "de"]  # Default
+
     print("Avatars after modification: ", avatars)
     json.dump(avatars, open(avatars_path, "w"))
-    avatar_llms, avatar_rag_tools = generate_avatars_config()
+    avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
     return jsonify(avatar), 200
 
 

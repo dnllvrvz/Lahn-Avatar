@@ -422,10 +422,109 @@ def translate_keywords_batch(keywords, source_lang="auto", target_lang="de"):
     return parts
 
 
-# Preload your NLP models
-nlp_en = spacy.load("en_core_web_sm")
-nlp_de = spacy.load("de_core_news_sm")
-# nlp_multi = spacy.load("xx_ent_wiki_sm")  # Multilingual fallback
+# Lazy-loading NLP models
+nlp_models = {}
+nlp_fallback = None
+
+def download_spacy_model(model_name):
+    """Download a spacy model if not available."""
+    import subprocess
+    import sys
+
+    print(f"Downloading spacy model: {model_name}...")
+
+    try:
+        # Try using spacy's download command first
+        subprocess.run(
+            [sys.executable, "-m", "spacy", "download", model_name],
+            check=True,
+            capture_output=True
+        )
+        print(f"Successfully downloaded {model_name}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to download {model_name} using spacy download: {e}")
+
+        # Fallback: try pip install with direct URL
+        # Mapping of model names to their download URLs (for small models)
+        model_urls = {
+            'en_core_web_sm': 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl',
+            'de_core_news_sm': 'https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.7.0/de_core_news_sm-3.7.0-py3-none-any.whl',
+            'fr_core_news_sm': 'https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.7.0/fr_core_news_sm-3.7.0-py3-none-any.whl',
+            'es_core_news_sm': 'https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.7.0/es_core_news_sm-3.7.0-py3-none-any.whl',
+            'pt_core_news_sm': 'https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.7.0/pt_core_news_sm-3.7.0-py3-none-any.whl',
+        }
+
+        if model_name in model_urls:
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", model_urls[model_name]],
+                    check=True,
+                    capture_output=True
+                )
+                print(f"Successfully downloaded {model_name} via pip")
+                return True
+            except subprocess.CalledProcessError:
+                print(f"Failed to download {model_name} via pip")
+                return False
+
+        return False
+
+def get_nlp_model(lang_code):
+    """Lazy-load NLP models on demand, downloading if necessary."""
+    global nlp_models, nlp_fallback
+
+    # Return cached model if available
+    if lang_code in nlp_models:
+        return nlp_models[lang_code]
+
+    # Map language codes to spacy model names
+    model_map = {
+        'en': 'en_core_web_sm',
+        'de': 'de_core_news_sm',
+        'fr': 'fr_core_news_sm',
+        'es': 'es_core_news_sm',
+        'pt': 'pt_core_news_sm',
+    }
+
+    if lang_code in model_map:
+        model_name = model_map[lang_code]
+
+        # Try to load the model
+        try:
+            print(f"Loading spacy model for {lang_code} ({model_name})...")
+            nlp_models[lang_code] = spacy.load(model_name)
+            return nlp_models[lang_code]
+        except OSError:
+            print(f"Spacy model {model_name} not found, attempting to download...")
+            if download_spacy_model(model_name):
+                # Try loading again after download
+                try:
+                    nlp_models[lang_code] = spacy.load(model_name)
+                    print(f"Successfully loaded {model_name} after download")
+                    return nlp_models[lang_code]
+                except OSError:
+                    print(f"Still cannot load {model_name} after download, using fallback")
+
+    # Use multilingual fallback
+    if nlp_fallback is None:
+        print("Loading multilingual spacy model (xx_ent_wiki_sm)...")
+        try:
+            nlp_fallback = spacy.load("xx_ent_wiki_sm")
+        except OSError:
+            print("Multilingual model not available, using English as fallback")
+            # Ensure English model is available (download if needed)
+            if 'en' not in nlp_models:
+                get_nlp_model('en')
+            nlp_fallback = nlp_models.get('en', spacy.load('en_core_web_sm'))
+
+    return nlp_fallback
+
+
+# Preload commonly used models
+print("Preloading EN and DE spacy models...")
+nlp_en = get_nlp_model('en')
+nlp_de = get_nlp_model('de')
 
 
 def extract_keywords(text):
@@ -475,6 +574,105 @@ def extract_keywords(text):
     return en_keywords, de_keywords
 
 
+def extract_keywords_multilingual(text, rag_languages):
+    """
+    Extract keywords from user input and translate to RAG languages.
+
+    Strategy:
+    - Detect input language
+    - If input is a RAG language: extract in that language, translate only to OTHER RAG languages
+    - If not: use multilingual extraction, translate to ALL RAG languages
+    """
+    # Detect input language
+    input_lang, confidence = langid.classify(text)
+    print(f"Detected input language: {input_lang} (confidence={confidence})")
+
+    result = {}
+
+    # Check if input language is in RAG languages (or close enough)
+    input_in_rag = any(
+        input_lang == lang or input_lang.startswith(lang[:2])
+        for lang in rag_languages
+    )
+
+    if input_in_rag:
+        # Extract keywords in input language using appropriate model
+        nlp = get_nlp_model(input_lang)
+
+        doc = nlp(text)
+        keywords = [
+            token.text for token in doc
+            if token.pos_ in ("NOUN", "PROPN", "X")
+            and (not token.is_stop or token.pos_ == "PROPN")
+        ]
+        keywords = list(set(keywords))[:5]
+        if len(keywords) == 0:
+            keywords = text.split()[:5]
+
+        result[input_lang] = keywords
+
+        # Translate only to OTHER RAG languages (not input lang)
+        for target_lang in rag_languages:
+            if target_lang != input_lang:
+                try:
+                    translated = translate_keywords_batch(keywords, target_lang=target_lang)
+                    result[target_lang] = translated
+                except Exception as e:
+                    print(f"Translation to {target_lang} failed: {e}")
+                    result[target_lang] = keywords
+    else:
+        # Input language not in RAG - use multilingual extraction
+        nlp = get_nlp_model(input_lang)  # Will use fallback if not available
+
+        doc = nlp(text)
+        keywords = [
+            token.text for token in doc
+            if token.pos_ in ("NOUN", "PROPN", "X")
+            and (not token.is_stop or token.pos_ == "PROPN")
+        ]
+        keywords = list(set(keywords))[:5]
+        if len(keywords) == 0:
+            keywords = text.split()[:5]
+
+        # Translate to ALL RAG languages
+        for target_lang in rag_languages:
+            try:
+                translated = translate_keywords_batch(keywords, target_lang=target_lang)
+                result[target_lang] = translated
+            except Exception as e:
+                print(f"Translation to {target_lang} failed: {e}")
+                result[target_lang] = keywords
+
+    return result
+
+
+def search_text_index_multilingual(bm25, chunks, keywords_by_lang, k_each=3):
+    """Search BM25 index with multiple language keyword sets."""
+    if bm25 is None:
+        return []
+
+    all_scores = {}
+
+    for lang, keywords in keywords_by_lang.items():
+        query = " ".join(keywords)
+        # Use 'de' tokenization as default (works for most European languages)
+        lang_code = "de" if lang == "de" else "en"
+
+        tokens = tokenize(normalise(query), lang_code)
+        scores = bm25.get_scores(tokens)
+        top = scores.argsort()[-k_each:][::-1]
+
+        for idx in top:
+            if idx in all_scores:
+                all_scores[idx] = max(all_scores[idx], float(scores[idx]))
+            else:
+                all_scores[idx] = float(scores[idx])
+
+    # Sort by score and return top results
+    merged = sorted(all_scores.items(), key=lambda kv: kv[1], reverse=True)[:k_each*2]
+    return [chunks[idx] for idx, score in merged]
+
+
 # Sensor related
 
 
@@ -483,16 +681,20 @@ THINGSPEAK_URL = "https://api.thingspeak.com/channels/2974588/feeds.json?results
 
 
 # 2) Wrap it in a callable that runs PandasQueryEngine on demand
-class LahnSensorsTool:
-    name = "lahn_sensors"
-    description = "You can access your (the Lahn river's) temperature, ph and other live readings here. This is the single source of truth for live river readings (pH, Dissolved Oxygen, Temp, Electrical Conductivity for water parameters and Humidity and CO2 for air parameters). Some questions require analysis of the data. For example: What was the lowest temperature reading last week? Such questions require you to not just access the relevant data range, but perform a computation on it. Do what is necessary on the data, to obtain a response to the question. Input: a natural-language question about live Lahn Atlas sensor values. Output: a concise natural-language answer based on the fetched data and an analysis of it. Use this to answer analytical questions about the live Lahn Atlas sensor data (pH, Dissolved Oxygen, Temp, Electrical Conductivity for water parameters and Humidity and CO2 for air parameters) fetched from the ThingSpeak REST API."
+class SensorsTool:
+    name = "sensors"
+    description = "Access live sensor data and perform analysis on environmental readings."
 
-    def __init__(self, llm):
+    def __init__(self, llm, sensor_url=None, sensor_description=None):
         # store whichever LLM you pass in (e.g. get_llm("mistral-large-instruct"))
         self.llm = llm
         self.cache_ttl = 1800
         self._cached_df = None
         self._engine = None
+
+        # Store custom URL and description if provided
+        self.sensor_url = sensor_url
+        self.sensor_description = sensor_description
         self.GENERAL_PANDAS_INSTRUCTIONS = """
             General guidance for using the DataFrame `df`:
             1. Always ensure consistent datetime handling:
@@ -516,29 +718,54 @@ class LahnSensorsTool:
             6. If any error occurs, adapt your next code so that it handles the failure case robustly.
             """
 
-    def _fetch_lahn_sensors_df(self) -> pd.DataFrame:
-        print("Fetching Lahn sensor data...")
-        resp = requests.get(THINGSPEAK_URL)
+    def _fetch_sensor_data_df(self) -> pd.DataFrame:
+        print(f"Fetching sensor data from {self.sensor_url}...")
+        resp = requests.get(self.sensor_url)
         resp.raise_for_status()
         data = resp.json()
-        # extract channel metadata → used for human‐friendly column names
-        channel_meta = data["channel"]
-        field_map = {f"field{i}": channel_meta[f"field{i}"] for i in range(1, 7)}
-        # load feeds into DataFrame
-        df = pd.json_normalize(data["feeds"])
-        # rename columns to pH, DO (mg/L), etc.
-        df = df.rename(columns=field_map)
-        # parse timestamp & convert all sensor readings to numeric
-        df["created_at"] = pd.to_datetime(df["created_at"])
-        for col in field_map.values():
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Check if this is ThingSpeak format or other format
+        if "channel" in data:
+            # ThingSpeak format: has "channel" metadata with field definitions
+            channel_meta = data["channel"]
+            field_map = {f"field{i}": channel_meta[f"field{i}"] for i in range(1, 7) if f"field{i}" in channel_meta}
+
+            # load feeds into DataFrame
+            df = pd.json_normalize(data["feeds"])
+
+            # rename columns to friendly names from metadata
+            df = df.rename(columns=field_map)
+
+            # parse timestamp & convert all sensor readings to numeric
+            df["created_at"] = pd.to_datetime(df["created_at"])
+            for col in field_map.values():
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        else:
+            # Generic format: use feeds as-is
+            # (e.g., AIRBOX format with s_d0, s_d1, s_t0, etc.)
+            df = pd.json_normalize(data["feeds"])
+
+            # Parse timestamp if available
+            if "timestamp" in df.columns:
+                df["created_at"] = pd.to_datetime(df["timestamp"])
+            elif "created_at" in df.columns:
+                df["created_at"] = pd.to_datetime(df["created_at"])
+            else:
+                # No timestamp column, use index
+                df.reset_index(drop=True, inplace=True)
+
+            # Convert numeric columns
+            for col in df.columns:
+                if col.startswith("s_") or col.startswith("c_"):
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
         return df
 
     def _get_df(self):
         now = time.time()
         if self._cached_df is None or (now - self._last_fetch) > self.cache_ttl:
             print("Fetching new sensor data...")
-            self._cached_df = self._fetch_lahn_sensors_df()
+            self._cached_df = self._fetch_sensor_data_df()
             self._last_fetch = now
         return self._cached_df
 
@@ -552,7 +779,7 @@ class LahnSensorsTool:
         return info
 
     def __call__(self, query: str) -> str:
-        print("Calling Lahn Sensors Tool...")
+        print("Calling Sensor Tool...")
         n_tries = 0
         df = self._get_df()
         sample_info = self._get_df_sample()
@@ -789,9 +1016,13 @@ def build_or_load_index(avatar_id, drive_folder_id, refresh=False):
     return vector_index, text_index, chunks
 
 
-def prepare_query_engines(avatar_id, drive_folder_id, refresh=False):
+def prepare_query_engines(avatar_id, drive_folder_id, rag_languages=None, refresh=False):
     if drive_folder_id == None:
-        return [None, None, None, None]
+        return [None, None, None, None, rag_languages or ['en', 'de']]
+
+    # Default to EN/DE if not specified
+    if rag_languages is None:
+        rag_languages = ['en', 'de']
 
     if refresh == True:
         vector_index, text_index, chunks = build_index(avatar_id, drive_folder_id)
@@ -807,7 +1038,7 @@ def prepare_query_engines(avatar_id, drive_folder_id, refresh=False):
     # vector_index_query_engine = vector_index.as_query_engine(llm=vector_query_llm,similarity_top_k=10, verbose=True)
     text_index_query_engine = search_text_index
 
-    return vector_index_query_engine, text_index_query_engine, text_index, chunks
+    return vector_index_query_engine, text_index_query_engine, text_index, chunks, rag_languages
 
 
 # vector_index_query_engine, text_index_query_engine, text_index, chunks = prepare_query_engines()
@@ -823,6 +1054,89 @@ def fetch_text_index_query(text_query_llm, conversation):
     query = str(text_query_llm.complete(query_prompt))
     # print('Crafted Query: ', query)
     return query
+
+
+def generate_context_aware_keywords_for_multilingual_text_index_search(text_query_llm, conversation, rag_languages):
+    """
+    Analyze the full conversation context and generate keywords for multilingual text-index (BM25) search.
+
+    This function looks beyond just the last message - it examines the entire
+    conversation to understand what context is needed for text-index search.
+    This is especially important for follow-up questions where the search needs
+    to maintain context from previous exchanges.
+
+    NOTE: These keywords are specifically for the BM25 text-index search, NOT
+    for vector search. Vector search uses all keywords combined.
+
+    Examples:
+        - First question "What about water quality?" -> ['water', 'quality']
+        - Follow-up "And temperature?" -> ['temperature', 'water body', 'recent']
+          (understands this is still about the same water body)
+
+    Args:
+        text_query_llm: LLM with system_prompt for query generation
+        conversation: Full chat history for context analysis
+        rag_languages: List of language codes (e.g., ['en', 'de', 'pt'])
+
+    Returns:
+        Dictionary mapping language codes to keyword lists
+        e.g., {'en': ['water', 'quality'], 'pt': ['água', 'qualidade']}
+    """
+    print(f"Generating context-aware keywords for RAG languages: {rag_languages}")
+
+    # Build language-specific prompt
+    languages_str = ", ".join(rag_languages)
+    num_keywords = 3  # Keywords per language
+
+    # Create dynamic system prompt based on RAG languages
+    system_prompt = f"""Context is needed to address the most recent message in the conversation.
+Look through the given conversation and determine what context is needed.
+
+If specific context is needed, return {num_keywords} relevant keywords for each of these languages: {languages_str}.
+If no specific context is needed (e.g., simple greetings), return general keywords about the Lahn/river.
+
+Return your response in this exact format:
+keyword1_lang1, keyword2_lang1, keyword3_lang1 | keyword1_lang2, keyword2_lang2, keyword3_lang2 | ...
+
+Where languages are in this order: {languages_str}
+
+For example, if languages are ['en', 'de', 'pt']:
+"water, quality, measurement | Wasser, Qualität, Messung | água, qualidade, medição"
+
+Your job is to determine what context is needed and generate appropriate keywords.
+Reply only with the keywords in the specified format, nothing else."""
+
+    # Update the LLM's system prompt temporarily
+    original_prompt = text_query_llm.system_prompt
+    text_query_llm.system_prompt = system_prompt
+
+    try:
+        query_prompt = "Here is the conversation: " + format_history_as_string(conversation)
+        response = str(text_query_llm.complete(query_prompt)).strip()
+
+        print(f"LLM generated keywords: {response}")
+
+        # Parse the response into language-specific keywords
+        keywords_by_lang = {}
+        parts = response.split("|")
+
+        for i, part in enumerate(parts):
+            if i < len(rag_languages):
+                lang = rag_languages[i]
+                keywords = [k.strip() for k in part.split(",") if k.strip()]
+                keywords_by_lang[lang] = keywords[:num_keywords]  # Limit to num_keywords
+
+        # Ensure all languages are present
+        for lang in rag_languages:
+            if lang not in keywords_by_lang:
+                keywords_by_lang[lang] = []
+
+        print(f"Parsed keywords by language: {keywords_by_lang}")
+        return keywords_by_lang
+
+    finally:
+        # Restore original system prompt
+        text_query_llm.system_prompt = original_prompt
 
 
 def fetch_vector_index_context(vector_index_query_engine, query):
@@ -843,29 +1157,61 @@ def fetch_vector_index_context(vector_index_query_engine, query):
     return response
 
 
-def RAG(avatar_rag_tools, query, translated=False):  # , text_index_query=None):
-    # keywords_for_text_based_retrieval
-    if translated == False:  # text_index_query==None:
-        en_keywords, de_keywords = extract_keywords(query)
-    else:
+def RAG(avatar_rag_tools, query=None, translated=False, keywords_by_lang=None):
+    """
+    Retrieve and augment context using RAG for the avatar's knowledge base.
+
+    Args:
+        avatar_rag_tools: Tuple of (vector_engine, text_search_fn, text_index, chunks, rag_languages)
+        query: User query string (used only if keywords_by_lang is None)
+        translated: Legacy parameter (deprecated)
+        keywords_by_lang: Pre-generated context-aware keywords by language
+
+    The keywords_by_lang parameter should be provided by generate_context_aware_keywords_for_multilingual_text_index_search
+    for context-aware query generation that considers the full conversation.
+    """
+    # Get RAG languages from avatar tools (5th element)
+    rag_languages = avatar_rag_tools[4] if len(avatar_rag_tools) > 4 else ['en', 'de']
+
+    # Determine keywords based on what was provided
+    if keywords_by_lang is not None:
+        # Use pre-generated context-aware keywords (preferred path)
+        print(f"Using pre-generated context-aware keywords: {keywords_by_lang}")
+    elif query is not None:
+        # Extract keywords from the query directly (fallback)
+        print(f"Extracting keywords from query: {query}")
+        keywords_by_lang = extract_keywords_multilingual(query, rag_languages)
+    elif translated:
+        # Legacy path for backward compatibility
         print(f"DEBUG: RAG function - translated=True, query='{query}'")
-        en_keywords, de_keywords = [
-            word.split(", ") for word in query.split("|")
-        ]  # extract_keywords(text_index_query)
-    print("Keywords for text-based retrieval: ", en_keywords, de_keywords)
+        keywords_by_lang = {}
+        parts = query.split("|")
+        if len(parts) >= 2:
+            keywords_by_lang['en'] = [w.strip() for w in parts[0].split(",")]
+            keywords_by_lang['de'] = [w.strip() for w in parts[1].split(",")]
+    else:
+        # No query or keywords provided
+        print("WARNING: No query or keywords provided to RAG")
+        keywords_by_lang = {lang: [] for lang in rag_languages}
+
+    print(f"Keywords by language: {keywords_by_lang}")
+
+    # Combine all keywords for vector search
+    all_keywords = []
+    for lang_keywords in keywords_by_lang.values():
+        all_keywords.extend(lang_keywords)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         thread_0 = executor.submit(
             fetch_vector_index_context,
             avatar_rag_tools[0],
-            ", ".join(en_keywords + de_keywords),
+            ", ".join(all_keywords),
         )  # query)
         thread_1 = executor.submit(
-            avatar_rag_tools[1],
-            avatar_rag_tools[2],
-            avatar_rag_tools[3],
-            en_keywords,
-            de_keywords,
+            search_text_index_multilingual,
+            avatar_rag_tools[2],  # BM25 object (text_index)
+            avatar_rag_tools[3],  # chunks
+            keywords_by_lang,
         )
 
         wait([thread_0, thread_1])

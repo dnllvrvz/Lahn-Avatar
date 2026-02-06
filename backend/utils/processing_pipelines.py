@@ -13,17 +13,17 @@ import websocket
 import base64
 
 from .utils import RAG
-from .avatar_setup import sensor_query_tool
 
 
 class OpenAIRealtimeClient:
     """Client for OpenAI's Realtime API using WebSocket."""
-    
-    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt='', rag_tools=None, streaming=False, ws_client=None):
+
+    def __init__(self, api_key: str, model: str = "gpt-realtime", prompt='', rag_tools=None, sensor_tool=None, streaming=False, ws_client=None):
         self.api_key = api_key
         self.model = model
         # OpenAI Realtime API WebSocket URL with model selection
         self.ws_url = f"wss://api.openai.com/v1/realtime?model={model}"
+        self.sensor_tool = sensor_tool  # Per-avatar sensor tool
         
         # Model pricing (input/output per 1M tokens)
         self.pricing = {
@@ -361,12 +361,16 @@ class OpenAIRealtimeClient:
 
     def _get_sensor_data(self, query:str):
         print('Function called: _get_sensor_data(). Query: ', query)
-        print('Calling Lahn Sensors Tool...')
+        print('Calling Sensor Tool...')
 
-        analysis = 'Result for query: '+query+ ' -> ' + str(sensor_query_tool(query))
-        print('Analysis: ', analysis)
-
-        return analysis
+        if self.sensor_tool:
+            analysis = 'Result for query: '+query+ ' -> ' + str(self.sensor_tool(query))
+            print('Analysis: ', analysis)
+            return analysis
+        else:
+            # No sensor tool configured for this avatar
+            print('No sensor tool available for this avatar')
+            return 'Result for query: '+query+ ' -> Sensor data is not available for this avatar.'
 
     
     def _on_open(self, ws):

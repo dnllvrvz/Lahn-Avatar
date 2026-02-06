@@ -599,6 +599,7 @@ export default function MultiAvatarChat() {
               <div><span className="font-semibold">Prompt:</span> {selectedAvatar.systemPromptUrl || "—"}</div>
               <div><span className="font-semibold">Context:</span> {selectedAvatar.contextDocsUrl || "—"}</div>
               <div><span className="font-semibold">Sensors:</span> {selectedAvatar.sensorApiUrl || "—"}</div>
+              <div><span className="font-semibold">Languages in context documents:</span> {Array.isArray(selectedAvatar.ragLanguages) ? selectedAvatar.ragLanguages.join(", ") : (selectedAvatar.ragLanguages || "—")}</div>
               <div><span className="font-semibold">API:</span> https://lahn-avatar.uni-giessen.de/api/chat?avatar={selectedAvatar.id}</div>
             </div>
           )}
@@ -607,16 +608,6 @@ export default function MultiAvatarChat() {
               Please select or create an avatar to start chatting.
             </div>
           )}
-      </div>
-
-      {/* Suggestion text */}
-      <div className="mb-4 text-stone-900 text-center px-4">
-        <p className="text-lg italic mb-2">Not sure where to begin? Try asking:</p>
-        <ul className="list-disc list-inside pl-4 text-base italic">
-          <li>“What perspective do you represent?”</li>
-          <li>“What are your core concerns?”</li>
-          <li>“How should humans relate to you?”</li>
-        </ul>
       </div>
 
       {isDebateMode && (
@@ -812,7 +803,7 @@ export default function MultiAvatarChat() {
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1">
-                  What languages are your RAG documents in?
+                  What languages are your context documents in?
                 </label>
                 <Input
                   className="border border-gray-300 rounded-md px-3 py-2 placeholder:text-gray-400"

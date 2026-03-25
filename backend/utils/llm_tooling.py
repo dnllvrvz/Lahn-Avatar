@@ -21,9 +21,11 @@ Message = Dict[str, str]  # {"role": "...", "content": "..."}
 
 
 class LLM(CustomLLM):
-    provider: Literal["gwdg", "openai"] = Field(default="gwdg")
+    provider: Literal["gwdg", "openai", "ollama"] = Field(default="gwdg")
 
     temperature: float = Field(default=0.1)
+    top_k: int = Field(default=40)
+    top_p: float = Field(default=1.0)
     system_prompt: str = Field(default="")
 
     context_window: int = 128000
@@ -37,11 +39,20 @@ class LLM(CustomLLM):
     openai_api_base: str = Field(default="https://api.openai.com/v1")
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
+    ollama_model: str = Field(default="llama3.2")
+    ollama_api_base: str = Field(default="https://ollama.com")
+    ollama_api_key: str = Field(default_factory=lambda: os.getenv("OLLAMA_API_KEY", ""))
+
     timeout: int = Field(default=60) # New timeout field
 
     @property
     def metadata(self) -> LLMMetadata:
-        model_name = self.gwdg_model if self.provider == "gwdg" else self.openai_model
+        if self.provider == "gwdg":
+            model_name = self.gwdg_model
+        elif self.provider == "ollama":
+            model_name = self.ollama_model
+        else:
+            model_name = self.openai_model
         return LLMMetadata(
             context_window=self.context_window,
             num_output=self.num_output,
@@ -90,6 +101,8 @@ class LLM(CustomLLM):
             "model": self.gwdg_model,
             "messages": messages,
             "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
         }
 
         url = f"{self.gwdg_api_base.rstrip('/')}/chat/completions"
@@ -119,6 +132,7 @@ class LLM(CustomLLM):
             "model": self.openai_model,
             "messages": messages,
             "temperature": self.temperature,
+            "top_p": self.top_p,
         }
 
         url = f"{self.openai_api_base.rstrip('/')}/chat/completions"
@@ -138,6 +152,42 @@ class LLM(CustomLLM):
         content = resp.json()["choices"][0]["message"]["content"]
         return CompletionResponse(text=content)
 
+    def _complete_ollama(self, messages: List[Message]) -> CompletionResponse:
+        if not self.ollama_api_key:
+            raise RuntimeError("Ollama API key not set (ollama_api_key or OLLAMA_API_KEY).")
+
+        headers = {
+            "Authorization": f"Bearer {self.ollama_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "top_k": self.top_k,
+                "top_p": self.top_p,
+            }
+        }
+
+        url = f"{self.ollama_api_base.rstrip('/')}/api/chat"
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+
+        if resp.status_code >= 400:
+            try:
+                err = resp.json()
+            except Exception:
+                err = {"raw": resp.text[:500]}
+
+            raise RuntimeError(
+                f"OLLAMA API error {resp.status_code}: {err}"
+            )
+
+        content = resp.json()["message"]["content"]
+        return CompletionResponse(text=content)
+
     # ---------- main LLM interface ----------
 
     @llm_completion_callback()
@@ -149,6 +199,8 @@ class LLM(CustomLLM):
             return self._complete_gwdg(messages)
         if self.provider == "openai":
             return self._complete_openai(messages)
+        if self.provider == "ollama":
+            return self._complete_ollama(messages)
         raise ValueError(f"Unknown provider: {self.provider}")
 
     @llm_completion_callback()

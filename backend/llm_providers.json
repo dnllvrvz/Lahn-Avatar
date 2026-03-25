@@ -14,5 +14,13 @@
     "api_base": "https://api.hrz.uni-giessen.de",
     "api_key_env": "GWDG_API_KEY",
     "models": ["gwdg/gemma-3-27b-it", "gwdg/medgemma-27b-it", "mistral-large-instruct", "hrz-chat-small", "gwdg/deepseek-r1", "llama-3.1-sauerkrautlm-70b-instruct"]
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama Cloud",
+    "provider_key": "ollama",
+    "api_base": "https://ollama.com",
+    "api_key_env": "OLLAMA_API_KEY",
+    "models": ["glm-4.6", "glm-5", "minimax-m2.1", "qwen3-vl:235b", "qwen3-coder:480b", "qwen3-next:80b", "gemini-3-flash-preview"]
   }
 ]

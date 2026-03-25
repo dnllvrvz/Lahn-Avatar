@@ -10,27 +10,21 @@ API_KEY = os.getenv("OPENAI_API_KEY") #("GWDG_API_KEY")
 API_BASE = None #os.getenv("GWDG_API_BASE")
 
 
-llm_choice = 'gpt-4.1-mini' #'gpt-4' #'mistral-large-instruct' #"gemma-3-27b-it"
+# Default LLM choices for each task (used when not specified in request)
+DEFAULT_CHAT_PROVIDER = "gwdg"
+DEFAULT_CHAT_MODEL = "gwdg/gemma-3-27b-it"
 
+DEFAULT_TEXT_QUERY_PROVIDER = "openai"
+DEFAULT_TEXT_QUERY_MODEL = "gpt-4.1-mini"
 
-# vector_query_llm, _ = get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query.:')
+DEFAULT_SENSOR_PROVIDER = "openai"
+DEFAULT_SENSOR_MODEL = "gpt-4.1-mini"
 
-# LLM for sensor data analysis
-sensor_query_llm = LLM(
-                    provider="openai",
-                    openai_api_key=API_KEY,
-                    openai_model=llm_choice,
-                    system_prompt='Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\');  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
+# System prompts for different tasks
+SENSOR_SYSTEM_PROMPT = 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\');  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :'
 
-text_query_llm = LLM(
-                    provider="openai",
-                    openai_api_key=API_KEY,          # or via env var OPENAI_API_KEY
-                    openai_model=llm_choice, #"gpt-4.1-mini",      # or "gpt-4.1" / whatever you want
-                    system_prompt='Context is needed to address the most recent message in the conversation (NOTE: EMPHASIS ON THE USER\'S LAST MESSAGE. INFO IS NEEDED TO RESPOND TO THE USER\'S LAST MESSAGE) (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, a "|" divider, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3 | keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: :')
+TEXT_QUERY_SYSTEM_PROMPT = 'Context is needed to address the most recent message in the conversation (NOTE: EMPHASIS ON THE USER\'S LAST MESSAGE. INFO IS NEEDED TO RESPOND TO THE USER\'S LAST MESSAGE) (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, a "|" divider, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3 | keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: :'
 
-
-# get_llm('gwdg', llm_choice, system_prompt= 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\'])  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :')
-# mistral-large-instruct qwen2.5-coder-32b-instruct
 
 class AvatarConfig:
     def __init__(self, system_prompt):
@@ -74,17 +68,17 @@ def generate_avatars_config(specific_avatar_id=None):
 
 		rag_tools = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar.get('driveFolderId'), rag_languages=rag_languages)
 
-		# Create sensor tool for this avatar if it has a sensor API URL
+		# Store sensor config (URL + description) instead of pre-instantiated tool
+		# The SensorsTool will be created on-the-fly with the appropriate LLM per request
 		sensor_api_url = avatar.get('sensorApiUrl', '').strip()
 		sensor_description = avatar.get('sensorDescription', '').strip()
 
 		if sensor_api_url:
-			print(f"Creating sensor tool for avatar {avatar_id}")
-			avatar_sensor_tools[avatar_id] = SensorsTool(
-				sensor_query_llm,
-				sensor_url=sensor_api_url,
-				sensor_description=sensor_description if sensor_description else None
-			)
+			print(f"Storing sensor config for avatar {avatar_id}")
+			avatar_sensor_tools[avatar_id] = {
+				'sensor_url': sensor_api_url,
+				'sensor_description': sensor_description if sensor_description else None
+			}
 		else:
 			print(f"No sensor API URL for avatar {avatar_id}")
 			avatar_sensor_tools[avatar_id] = None
@@ -92,12 +86,10 @@ def generate_avatars_config(specific_avatar_id=None):
 		if specific_avatar_id:
 			avatar_llms[avatar_id] = avatar_config
 			avatar_rag_tools[avatar_id] = rag_tools
-			avatar_sensor_tools[avatar_id] = avatar_sensor_tools[avatar_id]
 			return avatar_config, rag_tools, avatar_sensor_tools
 
 		avatar_llms[avatar_id] = avatar_config
 		avatar_rag_tools[avatar_id] = rag_tools
-		avatar_sensor_tools[avatar_id] = avatar_sensor_tools[avatar_id]
 
 	return avatar_llms, avatar_rag_tools, avatar_sensor_tools
 

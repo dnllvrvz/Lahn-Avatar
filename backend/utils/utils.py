@@ -1176,10 +1176,11 @@ def RAG(avatar_rag_tools, query=None, translated=False, keywords_by_lang=None):
     # Determine keywords based on what was provided
     if keywords_by_lang is not None:
         # Use pre-generated context-aware keywords (preferred path)
-        print(f"Using pre-generated context-aware keywords: {keywords_by_lang}")
+        # print(f"Using pre-generated context-aware keywords: {keywords_by_lang}")
+        pass
     elif query is not None:
         # Extract keywords from the query directly (fallback)
-        print(f"Extracting keywords from query: {query}")
+        # print(f"Extracting keywords from query: {query}")
         keywords_by_lang = extract_keywords_multilingual(query, rag_languages)
     elif translated:
         # Legacy path for backward compatibility
@@ -1236,5 +1237,5 @@ def RAG(avatar_rag_tools, query=None, translated=False, keywords_by_lang=None):
     printable = " | ".join(
         line.strip() for line in total_context.splitlines() if line.strip()
     )
-    print("-----\n\nRAG result: ", printable)
+    # print("-----\n\nRAG result: ", printable)
     return printable

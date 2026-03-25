@@ -18,8 +18,14 @@ from utils.avatar_setup import (
     avatar_sensor_tools,
     avatars_path,
     generate_avatars_config,
-    llm_choice,
-    text_query_llm,
+    DEFAULT_CHAT_PROVIDER,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_TEXT_QUERY_PROVIDER,
+    DEFAULT_TEXT_QUERY_MODEL,
+    DEFAULT_SENSOR_PROVIDER,
+    DEFAULT_SENSOR_MODEL,
+    SENSOR_SYSTEM_PROMPT,
+    TEXT_QUERY_SYSTEM_PROMPT,
 )
 from utils.processing_pipelines import OpenAIRealtimeClient
 from utils.utils import (
@@ -32,6 +38,7 @@ from utils.utils import (
     pcm_to_wav_bytes,
     prepare_query_engines,
     transcribe_audio,
+    SensorsTool,
 )
 from werkzeug.utils import secure_filename
 import requests
@@ -49,24 +56,19 @@ GWDG_API_BASE = os.getenv("GWDG_API_BASE")
 LLM_PROVIDERS_PATH = "llm_providers.json"
 
 
-@app.route("/api/health/llm", methods=["GET"])
-def llm_health():
-    """
-    Checks the health of the LLM models by attempting a lightweight completion.
-    Returns a map of model names to their status ('online' or 'offline').
-    Uses parallel health checks for better performance.
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    # Load providers from config file
+def _build_model_checks(provider_keys_filter=None):
+    """Build list of model checks, optionally filtered by provider keys."""
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    health_check_timeout = 15
 
-    health_check_timeout = 5 # seconds for a health check ping
-
-    # Build list of all model checks to run
     model_checks = []
     for provider in providers:
         provider_key = provider["provider_key"]
+
+        # Filter by provider keys if specified
+        if provider_keys_filter and provider_key not in provider_keys_filter:
+            continue
+
         api_key_env = provider.get("api_key_env", "")
         api_base = provider.get("api_base", "")
 
@@ -79,6 +81,8 @@ def llm_health():
                 api_key = OPENAI_API_KEY
             elif provider_key == "gwdg":
                 api_key = GWDG_API_KEY
+            elif provider_key == "ollama":
+                api_key = os.getenv("OLLAMA_API_KEY", "")
 
         if not api_base:
             if provider_key == "gwdg" and GWDG_API_BASE:
@@ -93,65 +97,120 @@ def llm_health():
                 "timeout": health_check_timeout
             })
 
-    # Function to check a single model
-    def check_model(check_data):
-        model_name = check_data["model_name"]
-        provider_key = check_data["provider_key"]
-        api_key = check_data["api_key"]
-        api_base = check_data["api_base"]
-        timeout = check_data["timeout"]
+    return model_checks
 
-        try:
-            llm_params = {
-                'provider': provider_key,
-                'system_prompt': "You are a helpful assistant.",
-                'timeout': timeout
-            }
 
-            # Set provider-specific parameters
-            if provider_key == "openai":
-                llm_params['openai_model'] = model_name
-                llm_params['openai_api_key'] = api_key
-                if api_base:
-                    llm_params['openai_api_base'] = api_base
-            elif provider_key == "gwdg":
-                llm_params['gwdg_model'] = model_name
-                if api_key:
-                    llm_params['gwdg_api_key'] = api_key
-                if api_base:
-                    llm_params['gwdg_api_base'] = api_base
-            else:
-                # For custom providers, try to use gwdg-style interface
-                llm_params['provider'] = 'gwdg'
-                llm_params['gwdg_model'] = model_name
-                if api_key:
-                    llm_params['gwdg_api_key'] = api_key
-                if api_base:
-                    llm_params['gwdg_api_base'] = api_base
+def _check_model(check_data):
+    """Check a single model's health."""
+    from utils.llm_tooling import LLM
 
-            temp_llm = LLM(**llm_params)
-            temp_llm.complete(prompt="ping")
-            return (model_name, "online")
-        except (RuntimeError, requests.exceptions.RequestException) as e:
-            print(f"Model {model_name} ({provider_key}) offline: {e}")
-            return (model_name, "offline")
-        except Exception as e:
-            print(f"Model {model_name} ({provider_key}) unknown error: {e}")
-            return (model_name, "offline")
+    model_name = check_data["model_name"]
+    provider_key = check_data["provider_key"]
+    api_key = check_data["api_key"]
+    api_base = check_data["api_base"]
+    timeout = check_data["timeout"]
 
-    # Run all health checks in parallel
-    health_status = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        # Submit all checks
-        future_to_model = {
-            executor.submit(check_model, check_data): check_data["model_name"]
-            for check_data in model_checks
+    try:
+        llm_params = {
+            'provider': provider_key,
+            'system_prompt': "You are a helpful assistant.",
+            'timeout': timeout
         }
 
-        # Collect results as they complete
+        # Set provider-specific parameters
+        if provider_key == "openai":
+            llm_params['openai_model'] = model_name
+            llm_params['openai_api_key'] = api_key
+            if api_base:
+                llm_params['openai_api_base'] = api_base
+        elif provider_key == "gwdg":
+            llm_params['gwdg_model'] = model_name
+            if api_key:
+                llm_params['gwdg_api_key'] = api_key
+            if api_base:
+                llm_params['gwdg_api_base'] = api_base
+        elif provider_key == "ollama":
+            llm_params['ollama_model'] = model_name
+            if api_key:
+                llm_params['ollama_api_key'] = api_key
+            if api_base:
+                llm_params['ollama_api_base'] = api_base
+        else:
+            # For custom providers, try to use gwdg-style interface
+            llm_params['provider'] = 'gwdg'
+            llm_params['gwdg_model'] = model_name
+            if api_key:
+                llm_params['gwdg_api_key'] = api_key
+            if api_base:
+                llm_params['gwdg_api_base'] = api_base
+
+        temp_llm = LLM(**llm_params)
+        temp_llm.complete(prompt="ping")
+        return (model_name, "online")
+    except (RuntimeError, requests.exceptions.RequestException):
+        return (model_name, "offline")
+    except Exception:
+        return (model_name, "offline")
+
+
+def _run_health_checks(model_checks, max_workers):
+    """Run health checks with specified parallelism."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    health_status = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_model = {
+            executor.submit(_check_model, check_data): check_data["model_name"]
+            for check_data in model_checks
+        }
         for future in as_completed(future_to_model):
             model_name, status = future.result()
             health_status[model_name] = status
+
+    return health_status
+
+
+@app.route("/api/health/llm/fast", methods=["GET"])
+def llm_health_fast():
+    """Health check for fast providers (OpenAI, GWDG) - high parallelism."""
+    # Fast providers: openai, gwdg
+    model_checks = _build_model_checks(provider_keys_filter=["openai", "gwdg"])
+    return jsonify(_run_health_checks(model_checks, max_workers=10))
+
+
+@app.route("/api/health/llm/slow", methods=["GET"])
+def llm_health_slow():
+    """Health check for slow/rate-limited providers (Ollama) - limited parallelism."""
+    model_checks = _build_model_checks(provider_keys_filter=["ollama"])
+    return jsonify(_run_health_checks(model_checks, max_workers=2))
+
+
+@app.route("/api/health/llm", methods=["GET"])
+def llm_health():
+    """
+    Combined health check for all providers.
+    Returns a map of model names to their status ('online' or 'offline').
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Build all model checks
+    model_checks = _build_model_checks()
+
+    # Separate by provider
+    ollama_checks = [m for m in model_checks if m["provider_key"] == "ollama"]
+    other_checks = [m for m in model_checks if m["provider_key"] != "ollama"]
+
+    health_status = {}
+
+    # Run both groups in parallel (but with different parallelism internally)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        # Submit both groups
+        fast_future = executor.submit(_run_health_checks, other_checks, 10)
+        slow_future = executor.submit(_run_health_checks, ollama_checks, 2)
+
+        # Collect results
+        health_status.update(fast_future.result())
+        health_status.update(slow_future.result())
 
     return jsonify(health_status)
 
@@ -240,14 +299,42 @@ def chat():
 
     user_llm_provider = data.get("llmProvider")
     user_llm_model = data.get("llmModel")
+    text_query_model = data.get("textQueryModel")
+    sensor_model = data.get("sensorModel")
+    temperature = data.get("temperature", 0.7)
+    top_k = data.get("topK", 40)
+    top_p = data.get("topP", 1.0)
 
-    # Track if user explicitly selected provider or if we're using defaults
+    # Log received parameters
+    print("\n=== LLM Parameters Received ===")
+    print(f"Provider: {user_llm_provider}")
+    print(f"Chat Model: {user_llm_model}")
+    print(f"Text Query Model: {text_query_model}")
+    print(f"Sensor Model: {sensor_model}")
+    print(f"Temperature: {temperature}")
+    print(f"Top K: {top_k}")
+    print(f"Top P: {top_p}")
+    print("=================================\n")
+
+    # Apply defaults for each task if not specified
     using_defaults = False
     if not user_llm_provider or not user_llm_model:
-        print("No LLM provider/model specified, defaulting to JLU with OpenAI fallback")
-        user_llm_provider = "gwdg"
-        user_llm_model = "gwdg/gemma-3-27b-it"
+        print("No LLM provider/model specified, using defaults")
+        user_llm_provider = DEFAULT_CHAT_PROVIDER
+        user_llm_model = DEFAULT_CHAT_MODEL
         using_defaults = True
+
+    if not text_query_model:
+        text_query_provider = DEFAULT_TEXT_QUERY_PROVIDER
+        text_query_model = DEFAULT_TEXT_QUERY_MODEL
+    else:
+        text_query_provider = user_llm_provider  # Use same provider as chat
+
+    if not sensor_model:
+        sensor_provider = DEFAULT_SENSOR_PROVIDER
+        sensor_model = DEFAULT_SENSOR_MODEL
+    else:
+        sensor_provider = user_llm_provider  # Use same provider as chat
 
     # Get the avatar's system prompt from the pre-loaded config
     system_prompt = avatar_llms[avatar_id].system_prompt
@@ -283,6 +370,92 @@ def chat():
 
     chat_history.insert(0, {"role": "system", "content": system_prompt_})
 
+    # === Load provider config early (needed for all LLM instantiations) ===
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+
+    # Helper function to create LLM instance for any task
+    def create_llm_for_task(provider_id, model, system_prompt, temperature=0.7, top_k=40, top_p=1.0, task_name="unknown"):
+        """Create an LLM instance for a specific task."""
+        provider = next((p for p in providers if p["id"] == provider_id), None)
+        if not provider:
+            raise ValueError(f"Unknown LLM provider: {provider_id}")
+
+        provider_key = provider["provider_key"]
+        api_key_env = provider.get("api_key_env", "")
+        api_base = provider.get("api_base", "")
+
+        # Load API key from environment variable
+        api_key = os.getenv(api_key_env, "") if api_key_env else ""
+
+        # Special handling for legacy env vars
+        if not api_key:
+            if provider_key == "openai":
+                api_key = OPENAI_API_KEY
+            elif provider_key == "gwdg":
+                api_key = GWDG_API_KEY
+            elif provider_key == "ollama":
+                api_key = os.getenv("OLLAMA_API_KEY", "")
+
+        if not api_base:
+            if provider_key == "gwdg" and GWDG_API_BASE:
+                api_base = GWDG_API_BASE
+
+        # Log parameters being sent to model
+        print(f"Creating LLM for {task_name}: provider={provider_id}, model={model}, temp={temperature}, top_k={top_k}, top_p={top_p}")
+
+        # Build LLM parameters based on provider type
+        if provider_key == 'openai':
+            llm_params = {
+                'provider': 'openai',
+                'openai_model': model,
+                'system_prompt': system_prompt,
+                'openai_api_key': api_key,
+                'temperature': temperature,
+                'top_k': top_k,
+                'top_p': top_p
+            }
+            if api_base:
+                llm_params['openai_api_base'] = api_base
+            return LLM(**llm_params)
+        elif provider_key == 'ollama':
+            llm_params = {
+                'provider': 'ollama',
+                'ollama_model': model,
+                'system_prompt': system_prompt,
+                'temperature': temperature,
+                'top_k': top_k,
+                'top_p': top_p
+            }
+            if api_key:
+                llm_params['ollama_api_key'] = api_key
+            if api_base:
+                llm_params['ollama_api_base'] = api_base
+            return LLM(**llm_params)
+        else:
+            # For GWDG and custom providers (use GWDG-style interface)
+            llm_params = {
+                'provider': 'gwdg',
+                'gwdg_model': model,
+                'system_prompt': system_prompt,
+                'temperature': temperature,
+                'top_k': top_k,
+                'top_p': top_p
+            }
+            if api_key:
+                llm_params['gwdg_api_key'] = api_key
+            if api_base:
+                llm_params['gwdg_api_base'] = api_base
+            return LLM(**llm_params)
+
+    # === Create task-specific LLMs ===
+    # Text query LLM for keyword generation
+    text_query_llm = create_llm_for_task(
+        text_query_provider,
+        text_query_model,
+        TEXT_QUERY_SYSTEM_PROMPT,
+        task_name="text_query"
+    )
+
     # === RAG Context Injection ===
     if avatar_rag_tools[avatar_id] != [None, None, None, None, ['en', 'de']]:
         print("Obtaining information for the LLM...")
@@ -299,18 +472,17 @@ def chat():
 
         total_context = context
         chat_history[-1]["content"] += (
-            "The following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.): "
+            " <End of User message>.        <<The following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.) This instruction is in English, but your response should be in whatever language the user messaged you in:>>  "
             + total_context
         )
 
     # === Sensor Tool Function Schema ===
-    if avatar_sensor_tools.get(avatar_id):
+    sensor_config = avatar_sensor_tools.get(avatar_id)
+    if sensor_config:
         print("Adding sensor tool function schema to prompt...")
 
-        # Get sensor description from avatar config
-        avatars = json.load(open(avatars_path, "r"))
-        avatar = next((a for a in avatars if a["id"] == avatar_id), None)
-        sensor_description = avatar.get("sensorDescription", "") if avatar else ""
+        # Get sensor description from stored config
+        sensor_description = sensor_config.get('sensor_description', '')
 
         # JSON-escape the description for proper embedding
         import json as json_module
@@ -336,57 +508,10 @@ If you decide to invoke the function, you MUST put it in the format:
         chat_history[-1]["content"] += function_schema
 
     messages_to_send = chat_history
-    print("\n\nMessages to send: ", messages_to_send)
+    # print("\n\nMessages to send: ", messages_to_send)
 
-    # --- Instantiate LLM on-the-fly based on user's choice ---
-    # Load provider config
-    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
-    provider = next((p for p in providers if p["id"] == user_llm_provider), None)
-
-    if not provider:
-        return jsonify({"error": f"Unknown LLM provider: {user_llm_provider}"}), 400
-
-    provider_key = provider["provider_key"]
-    api_key_env = provider.get("api_key_env", "")
-    api_base = provider.get("api_base", "")
-
-    # Load API key from environment variable
-    api_key = os.getenv(api_key_env, "") if api_key_env else ""
-
-    # Special handling for legacy env vars
-    if not api_key:
-        if provider_key == "openai":
-            api_key = OPENAI_API_KEY
-        elif provider_key == "gwdg":
-            api_key = GWDG_API_KEY
-
-    if not api_base:
-        if provider_key == "gwdg" and GWDG_API_BASE:
-            api_base = GWDG_API_BASE
-
-    # Build LLM parameters based on provider type
-    if provider_key == 'openai':
-        llm_params = {
-            'provider': 'openai',
-            'openai_model': user_llm_model,
-            'system_prompt': system_prompt_,
-            'openai_api_key': api_key
-        }
-        if api_base:
-            llm_params['openai_api_base'] = api_base
-        llm = LLM(**llm_params)
-    else:
-        # For GWDG and custom providers (use GWDG-style interface)
-        llm_params = {
-            'provider': 'gwdg',
-            'gwdg_model': user_llm_model,
-            'system_prompt': system_prompt_
-        }
-        if api_key:
-            llm_params['gwdg_api_key'] = api_key
-        if api_base:
-            llm_params['gwdg_api_base'] = api_base
-        llm = LLM(**llm_params)
+    # === Create chat LLM for main conversation ===
+    llm = create_llm_for_task(user_llm_provider, user_llm_model, system_prompt_, temperature=temperature, top_k=top_k, top_p=top_p, task_name="chat")
 
     # Try completion with fail-fast fallback to OpenAI if using defaults
     try:
@@ -394,15 +519,10 @@ If you decide to invoke the function, you MUST put it in the format:
         response = chat_completion.text
     except (RuntimeError, requests.exceptions.RequestException) as e:
         # If we're using defaults and GWDG fails, retry with OpenAI
-        if using_defaults and provider_key == 'gwdg':
+        if using_defaults and user_llm_provider == 'gwdg':
             print(f"GWDG failed with error: {e}")
             print("Retrying with OpenAI fallback...")
-            llm = LLM(
-                provider='openai',
-                openai_model='gpt-4o-mini',
-                system_prompt=system_prompt_,
-                openai_api_key=OPENAI_API_KEY
-            )
+            llm = create_llm_for_task('openai', 'gpt-4o-mini', system_prompt_, task_name="chat_fallback")
             chat_completion = llm.complete(messages_to_send)
             response = chat_completion.text
         else:
@@ -417,10 +537,23 @@ If you decide to invoke the function, you MUST put it in the format:
         query = response[: response.find('")')]
         print("Query: ", query)
 
-        # Get the sensor tool for this specific avatar
-        sensor_tool = avatar_sensor_tools.get(avatar_id)
+        # Get the sensor config for this avatar and create tool on-the-fly
+        sensor_config = avatar_sensor_tools.get(avatar_id)
 
-        if sensor_tool:
+        if sensor_config:
+            # Create sensor LLM and tool on-the-fly
+            sensor_llm = create_llm_for_task(
+                sensor_provider,
+                sensor_model,
+                SENSOR_SYSTEM_PROMPT,
+                task_name="sensor"
+            )
+            sensor_tool = SensorsTool(
+                sensor_llm,
+                sensor_url=sensor_config['sensor_url'],
+                sensor_description=sensor_config.get('sensor_description')
+            )
+
             analysis = str(sensor_tool(query))
             print("Analysis: ", analysis)
             results = (

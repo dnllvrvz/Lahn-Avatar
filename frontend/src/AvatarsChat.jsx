@@ -40,8 +40,14 @@ export default function MultiAvatarChat() {
   // --- LLM selection and health state ---
   const [currentUserLlmProvider, setCurrentUserLlmProvider] = useState('openai');
   const [currentUserLlmModel, setCurrentUserLlmModel] = useState('gpt-4o-mini');
+  const [currentUserTextQueryModel, setCurrentUserTextQueryModel] = useState('gpt-4o-mini');
+  const [currentUserSensorModel, setCurrentUserSensorModel] = useState('gpt-4o-mini');
+  const [currentUserTemperature, setCurrentUserTemperature] = useState(0.7);
+  const [currentUserTopK, setCurrentUserTopK] = useState(40);
+  const [currentUserTopP, setCurrentUserTopP] = useState(1.0);
   const [modelHealth, setModelHealth] = useState({});
   const [llmOptions, setLlmOptions] = useState({});
+  const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
 
   // --- LLM provider management state ---
   const [providerFormOpen, setProviderFormOpen] = useState(false);
@@ -85,6 +91,8 @@ export default function MultiAvatarChat() {
         if (firstProvider && data[firstProvider].models.length > 0) {
           setCurrentUserLlmProvider(firstProvider);
           setCurrentUserLlmModel(data[firstProvider].models[0]);
+          setCurrentUserTextQueryModel(data[firstProvider].models[0]);
+          setCurrentUserSensorModel(data[firstProvider].models[0]);
         }
       } catch (err) {
         console.error("Error loading LLM options:", err);
@@ -95,15 +103,34 @@ export default function MultiAvatarChat() {
   // === Background health check (non-blocking) ===
   useEffect(() => {
     const fetchHealthStatus = async () => {
-      try {
-        const resp = await fetch("/api/health/llm");
-        if (!resp.ok) throw new Error("Failed to fetch LLM health");
-        const data = await resp.json();
-        setModelHealth(data);
-        console.log("LLM Health Status loaded:", data);
-      } catch (err) {
-        console.error("Error loading LLM health:", err);
-      }
+      // Fetch fast and slow endpoints in parallel
+      const fetchFast = async () => {
+        try {
+          const resp = await fetch("/api/health/llm/fast");
+          if (!resp.ok) throw new Error("Failed to fetch fast health");
+          const data = await resp.json();
+          setModelHealth(prev => ({ ...prev, ...data }));
+          console.log("Fast LLM health loaded:", data);
+        } catch (err) {
+          console.error("Error loading fast LLM health:", err);
+        }
+      };
+
+      const fetchSlow = async () => {
+        try {
+          const resp = await fetch("/api/health/llm/slow");
+          if (!resp.ok) throw new Error("Failed to fetch slow health");
+          const data = await resp.json();
+          setModelHealth(prev => ({ ...prev, ...data }));
+          console.log("Slow LLM health loaded:", data);
+        } catch (err) {
+          console.error("Error loading slow LLM health:", err);
+        }
+      };
+
+      // Run both in parallel - fast results will update UI first
+      fetchFast();
+      fetchSlow();
     };
 
     // Fetch health status in background after component mounts
@@ -370,6 +397,11 @@ export default function MultiAvatarChat() {
             avatarName: selectedAvatar.name,
             llmProvider: currentUserLlmProvider,
             llmModel: currentUserLlmModel,
+            temperature: currentUserTemperature,
+            topK: currentUserTopK,
+            topP: currentUserTopP,
+            textQueryModel: currentUserTextQueryModel,
+            sensorModel: currentUserSensorModel,
             ...(isDebateMode && selectedTopic
               ? { topic: selectedTopic }
               : {})
@@ -525,53 +557,169 @@ export default function MultiAvatarChat() {
           </div>
         </div>
 
-        <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-                <label className="font-poetic text-stone-700">Provider:</label>
-                <select
-                    className="p-2 rounded-md border bg-white font-poetic"
-                    value={currentUserLlmProvider}
-                    onChange={e => {
-                        setCurrentUserLlmProvider(e.target.value);
-                        setCurrentUserLlmModel(llmOptions[e.target.value].models[0]);
-                    }}
-                >
-                    {Object.keys(llmOptions).map(key => (
-                        <option key={key} value={key}>{llmOptions[key].name}</option>
-                    ))}
-                </select>
-                <Button
-                  variant="outline"
-                  className="font-poetic text-xs"
-                  onClick={openCreateProviderForm}
-                >
-                  + New Provider
-                </Button>
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
+
+        {/* Collapsible LLM Config Section */}
+        <div className="w-full">
+          <button
+            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+            onClick={() => setLlmConfigExpanded(!llmConfigExpanded)}
+          >
+            <span className="text-lg">{llmConfigExpanded ? '▼' : '▶'}</span>
+            <span className="font-semibold">LLM Config</span>
+          </button>
+
+          {llmConfigExpanded && (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700">Provider:</label>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic"
+                          value={currentUserLlmProvider}
+                          onChange={e => {
+                              setCurrentUserLlmProvider(e.target.value);
+                              const models = llmOptions[e.target.value].models;
+                              setCurrentUserLlmModel(models[0]);
+                              setCurrentUserTextQueryModel(models[0]);
+                              setCurrentUserSensorModel(models[0]);
+                          }}
+                      >
+                          {Object.keys(llmOptions).map(key => (
+                              <option key={key} value={key}>{llmOptions[key].name}</option>
+                          ))}
+                      </select>
+                      <Button
+                        variant="outline"
+                        className="font-poetic text-xs"
+                        onClick={openCreateProviderForm}
+                      >
+                        + New Provider
+                      </Button>
+                  </div>
+              </div>
+
+              <div className="flex items-center justify-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700">Chat:</label>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic"
+                          value={currentUserLlmModel}
+                          onChange={e => setCurrentUserLlmModel(e.target.value)}
+                      >
+                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                              const status = modelHealth[model];
+                              let indicator = '⚪';
+                              if (status === 'online') {
+                                  indicator = '🟢';
+                              } else if (status === 'offline') {
+                                  indicator = '🔴';
+                              }
+                              return (
+                                  <option key={model} value={model} disabled={status === 'offline'}>
+                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                  </option>
+                              );
+                          })}
+                      </select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700 text-sm">Temp:</label>
+                      <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={currentUserTemperature}
+                          onChange={e => setCurrentUserTemperature(parseFloat(e.target.value))}
+                          className="w-20"
+                      />
+                      <span className="text-xs text-stone-600 w-6">{currentUserTemperature}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                      <label className={`font-poetic text-sm ${currentUserLlmProvider === 'openai' ? 'text-stone-400' : 'text-stone-700'}`}>Top K:</label>
+                      <input
+                          type="range"
+                          min="1"
+                          max="100"
+                          step="1"
+                          value={currentUserTopK}
+                          onChange={e => setCurrentUserTopK(parseInt(e.target.value))}
+                          className="w-20"
+                          disabled={currentUserLlmProvider === 'openai'}
+                      />
+                      <span className={`text-xs w-6 ${currentUserLlmProvider === 'openai' ? 'text-stone-400' : 'text-stone-600'}`}>{currentUserLlmProvider === 'openai' ? '—' : currentUserTopK}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700 text-sm">Top P:</label>
+                      <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={currentUserTopP}
+                          onChange={e => setCurrentUserTopP(parseFloat(e.target.value))}
+                          className="w-20"
+                      />
+                      <span className="text-xs text-stone-600 w-8">{currentUserTopP}</span>
+                  </div>
+              </div>
+
+              <div className="flex items-center justify-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700">Text Query:</label>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic"
+                          value={currentUserTextQueryModel}
+                          onChange={e => setCurrentUserTextQueryModel(e.target.value)}
+                      >
+                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                              const status = modelHealth[model];
+                              let indicator = '⚪';
+                              if (status === 'online') {
+                                  indicator = '🟢';
+                              } else if (status === 'offline') {
+                                  indicator = '🔴';
+                              }
+                              return (
+                                  <option key={model} value={model} disabled={status === 'offline'}>
+                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                  </option>
+                              );
+                          })}
+                      </select>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                      <label className="font-poetic text-stone-700">Sensor:</label>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic"
+                          value={currentUserSensorModel}
+                          onChange={e => setCurrentUserSensorModel(e.target.value)}
+                      >
+                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                              const status = modelHealth[model];
+                              let indicator = '⚪';
+                              if (status === 'online') {
+                                  indicator = '🟢';
+                              } else if (status === 'offline') {
+                                  indicator = '🔴';
+                              }
+                              return (
+                                  <option key={model} value={model} disabled={status === 'offline'}>
+                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                  </option>
+                              );
+                          })}
+                      </select>
+                  </div>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-                <label className="font-poetic text-stone-700">Model:</label>
-                <select
-                    className="p-2 rounded-md border bg-white font-poetic"
-                    value={currentUserLlmModel}
-                    onChange={e => setCurrentUserLlmModel(e.target.value)}
-                >
-                    {llmOptions[currentUserLlmProvider]?.models.map(model => {
-                        const status = modelHealth[model];
-                        let indicator = '⚪'; // Default: Unknown
-                        if (status === 'online') {
-                            indicator = '🟢'; // Green: Online
-                        } else if (status === 'offline') {
-                            indicator = '🔴'; // Red: Offline
-                        }
-                        return (
-                            <option key={model} value={model} disabled={status === 'offline'}>
-                                {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
-                            </option>
-                        );
-                    })}
-                </select>
-            </div>
+          )}
         </div>
+
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
 
         {selectedAvatar && (
             <div className="flex gap-2 items-center justify-center mt-2">

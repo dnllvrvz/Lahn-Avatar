@@ -101,7 +101,16 @@ export default function MultiAvatarChat() {
   }, []);
 
   // === Background health check (non-blocking) ===
+  const healthCheckInProgress = useRef(false);
+
   useEffect(() => {
+    // Skip if a health check is already in progress (prevents StrictMode double-invocation)
+    if (healthCheckInProgress.current) {
+      console.log("Health check already in progress, skipping duplicate");
+      return;
+    }
+    healthCheckInProgress.current = true;
+
     const fetchHealthStatus = async () => {
       // Fetch fast and slow endpoints in parallel
       const fetchFast = async () => {

@@ -146,10 +146,13 @@ def _check_model(check_data):
 
         temp_llm = LLM(**llm_params)
         temp_llm.complete(prompt="ping")
+        print(f"Health check: {model_name} ({provider_key}) -> online")
         return (model_name, "online")
-    except (RuntimeError, requests.exceptions.RequestException):
+    except (RuntimeError, requests.exceptions.RequestException) as e:
+        print(f"Health check: {model_name} ({provider_key}) -> offline ({type(e).__name__}: {str(e)[:100]})")
         return (model_name, "offline")
-    except Exception:
+    except Exception as e:
+        print(f"Health check: {model_name} ({provider_key}) -> offline ({type(e).__name__}: {str(e)[:100]})")
         return (model_name, "offline")
 
 
@@ -175,14 +178,18 @@ def llm_health_fast():
     """Health check for fast providers (OpenAI, GWDG) - high parallelism."""
     # Fast providers: openai, gwdg
     model_checks = _build_model_checks(provider_keys_filter=["openai", "gwdg"])
-    return jsonify(_run_health_checks(model_checks, max_workers=10))
+    results = _run_health_checks(model_checks, max_workers=10)
+    print(f"Fast health check results: {results}")
+    return jsonify(results)
 
 
 @app.route("/api/health/llm/slow", methods=["GET"])
 def llm_health_slow():
     """Health check for slow/rate-limited providers (Ollama) - limited parallelism."""
     model_checks = _build_model_checks(provider_keys_filter=["ollama"])
-    return jsonify(_run_health_checks(model_checks, max_workers=2))
+    results = _run_health_checks(model_checks, max_workers=2)
+    print(f"Slow health check results: {results}")
+    return jsonify(results)
 
 
 @app.route("/api/health/llm", methods=["GET"])

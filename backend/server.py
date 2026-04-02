@@ -59,7 +59,6 @@ LLM_PROVIDERS_PATH = "llm_providers.json"
 def _build_model_checks(provider_keys_filter=None):
     """Build list of model checks, optionally filtered by provider keys."""
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
-    health_check_timeout = 15
 
     model_checks = []
     for provider in providers:
@@ -87,6 +86,9 @@ def _build_model_checks(provider_keys_filter=None):
         if not api_base:
             if provider_key == "gwdg" and GWDG_API_BASE:
                 api_base = GWDG_API_BASE
+
+        # Ollama models can be slower, use longer timeout
+        health_check_timeout = 25 if provider_key == "ollama" else 15
 
         for model_name in provider.get("models", []):
             model_checks.append({

@@ -48,6 +48,7 @@ export default function MultiAvatarChat() {
   const [modelHealth, setModelHealth] = useState({});
   const [llmOptions, setLlmOptions] = useState({});
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
+  const [hasLlmDefaults, setHasLlmDefaults] = useState(false);  // Track if current avatar has defaults saved
 
   // --- LLM provider management state ---
   const [providerFormOpen, setProviderFormOpen] = useState(false);
@@ -145,6 +146,104 @@ export default function MultiAvatarChat() {
     // Fetch health status in background after component mounts
     fetchHealthStatus();
   }, []);
+
+  // === Load Admin defaults when avatar changes ===
+  useEffect(() => {
+    if (!selectedAvatarId || !llmOptions || Object.keys(llmOptions).length === 0) return;
+
+    const selectedAvatar = avatars.find(a => a.id === selectedAvatarId);
+    if (selectedAvatar?.llmDefaults) {
+      const defaults = selectedAvatar.llmDefaults;
+      console.log("Loading Admin defaults for avatar:", defaults);
+
+      // Load chat defaults
+      if (defaults.chat) {
+        if (defaults.chat.provider) setCurrentUserLlmProvider(defaults.chat.provider);
+        if (defaults.chat.model) setCurrentUserLlmModel(defaults.chat.model);
+        if (defaults.chat.temperature) setCurrentUserTemperature(defaults.chat.temperature);
+        if (defaults.chat.top_k) setCurrentUserTopK(defaults.chat.top_k);
+        if (defaults.chat.top_p) setCurrentUserTopP(defaults.chat.top_p);
+      }
+
+      // Load text query defaults
+      if (defaults.textQuery) {
+        if (defaults.textQuery.model) setCurrentUserTextQueryModel(defaults.textQuery.model);
+      }
+
+      // Load sensor defaults
+      if (defaults.sensor) {
+        if (defaults.sensor.model) setCurrentUserSensorModel(defaults.sensor.model);
+      }
+
+      setHasLlmDefaults(true);
+    } else {
+      // No Admin defaults saved, use global defaults
+      const firstProvider = Object.keys(llmOptions)[0];
+      if (firstProvider && llmOptions[firstProvider].models.length > 0) {
+        setCurrentUserLlmProvider(firstProvider);
+        setCurrentUserLlmModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserTextQueryModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserSensorModel(llmOptions[firstProvider].models[0]);
+      }
+      setCurrentUserTemperature(0.7);
+      setCurrentUserTopK(40);
+      setCurrentUserTopP(1.0);
+      setHasLlmDefaults(false);
+    }
+  }, [selectedAvatarId, llmOptions]);
+
+  // === Save/Clear Admin defaults ===
+  const handleSaveLlmDefaults = async () => {
+    if (!selectedAvatarId) return;
+
+    try {
+      const resp = await fetch(`/api/avatars/${selectedAvatarId}/llm-defaults`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatProvider: currentUserLlmProvider,
+          chatModel: currentUserLlmModel,
+          temperature: currentUserTemperature,
+          topK: currentUserTopK,
+          topP: currentUserTopP,
+          textQueryProvider: currentUserLlmProvider,
+          textQueryModel: currentUserTextQueryModel,
+          sensorProvider: currentUserLlmProvider,
+          sensorModel: currentUserSensorModel,
+        }),
+      });
+
+      if (!resp.ok) throw new Error("Failed to save defaults");
+      const updatedAvatar = await resp.json();
+
+      // Update avatars list with the new data
+      setAvatars(prev => prev.map(a => a.id === selectedAvatarId ? updatedAvatar : a));
+      setHasLlmDefaults(true);
+      console.log("Admin defaults saved for avatar:", selectedAvatarId);
+    } catch (err) {
+      console.error("Error saving Admin defaults:", err);
+    }
+  };
+
+  const handleClearLlmDefaults = async () => {
+    if (!selectedAvatarId) return;
+
+    try {
+      const resp = await fetch(`/api/avatars/${selectedAvatarId}/llm-defaults`, {
+        method: 'DELETE',
+      });
+
+      if (!resp.ok) throw new Error("Failed to clear defaults");
+      const updatedAvatar = await resp.json();
+
+      // Update avatars list
+      setAvatars(prev => prev.map(a => a.id === selectedAvatarId ? updatedAvatar : a));
+      setHasLlmDefaults(false);
+      console.log("Admin defaults cleared for avatar:", selectedAvatarId);
+    } catch (err) {
+      console.error("Error clearing Admin defaults:", err);
+    }
+  };
 
 
   const [topics] = useState([
@@ -722,6 +821,25 @@ export default function MultiAvatarChat() {
                           })}
                       </select>
                   </div>
+              </div>
+
+              {/* Admin defaults toggle */}
+              <div className="flex items-center justify-center space-x-2 mt-2">
+                  <label className="font-poetic text-stone-700 text-sm">Admin Defaults:</label>
+                  <Switch
+                      checked={hasLlmDefaults}
+                      onCheckedChange={(checked) => {
+                          if (checked) {
+                              handleSaveLlmDefaults();
+                          } else {
+                              handleClearLlmDefaults();
+                          }
+                      }}
+                      className="data-[state=checked]:bg-green-600"
+                  />
+                  <span className="text-xs text-stone-500">
+                      {hasLlmDefaults ? 'Saved as Admin default' : 'Not saved'}
+                  </span>
               </div>
             </div>
           )}

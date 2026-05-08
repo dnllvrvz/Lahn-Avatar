@@ -697,6 +697,10 @@ class SensorsTool:
         self.sensor_description = sensor_description
         self.GENERAL_PANDAS_INSTRUCTIONS = """
             General guidance for using the DataFrame `df`:
+
+            CRITICAL: Output ONLY raw Python code. Do NOT use markdown code blocks (no ```python, no ```).
+            The code execution system cannot parse markdown syntax.
+
             1. Always ensure consistent datetime handling:
                df['created_at'] = pd.to_datetime(df['created_at'])
                df['created_at'] = df['created_at'].dt.tz_localize(None)
@@ -1239,3 +1243,59 @@ def RAG(avatar_rag_tools, query=None, translated=False, keywords_by_lang=None):
     )
     # print("-----\n\nRAG result: ", printable)
     return printable
+
+
+# ---------- Web Search (Brave API) ----------
+def web_search(query: str, count: int = 5) -> str:
+    """
+    Search the web using Brave Search API.
+    Brave automatically detects query language and returns matching results.
+
+    Args:
+        query: The search query
+        count: Number of results to return (default 5, max 50)
+
+    Returns:
+        Formatted search results string for LLM consumption
+    """
+    api_key = os.getenv("BRAVE_SEARCH_API_KEY")
+    if not api_key:
+        return "Web search unavailable: API key not configured."
+
+    url = "https://api.search.brave.com/res/v1/web/search"
+
+    headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": api_key
+    }
+
+    params = {
+        "q": query,
+        "count": count
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+
+        data = resp.json()
+        results = data.get("web", {}).get("results", [])
+
+        if not results:
+            return f"No results found for query: {query}"
+
+        # Format results for LLM
+        formatted = []
+        for r in results:
+            title = r.get("title", "No title")
+            desc = r.get("description", "No description")
+            url_link = r.get("url", "")
+            formatted.append(f"- **{title}**\n  {desc}\n  Source: {url_link}")
+
+        return "\n\n".join(formatted)
+
+    except requests.exceptions.RequestException as e:
+        return f"Web search failed: {str(e)}"
+    except Exception as e:
+        return f"Web search error: {str(e)}"

@@ -39,6 +39,7 @@ from utils.utils import (
     prepare_query_engines,
     transcribe_audio,
     SensorsTool,
+    web_search,
 )
 from werkzeug.utils import secure_filename
 import requests
@@ -300,50 +301,150 @@ def refresh_embeddings():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     # global llm, llm_choice, system_prompt
-    print(
-        "\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received."
-    )
     avatar_id = request.args.get("avatar", "0")
     data = request.get_json()
 
-    user_llm_provider = data.get("llmProvider")
-    user_llm_model = data.get("llmModel")
-    text_query_model = data.get("textQueryModel")
-    sensor_model = data.get("sensorModel")
-    temperature = data.get("temperature", 0.7)
-    top_k = data.get("topK", 40)
-    top_p = data.get("topP", 1.0)
+    # Load avatar to check for defaults
+    avatars = json.load(open(avatars_path, "r"))
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+    avatar_name = avatar.get("name", "Unknown") if avatar else "Unknown"
+    admin_defaults = avatar.get("llmDefaults", {}) if avatar else {}
 
-    # Log received parameters
-    print("\n=== LLM Parameters Received ===")
-    print(f"Provider: {user_llm_provider}")
-    print(f"Chat Model: {user_llm_model}")
-    print(f"Text Query Model: {text_query_model}")
-    print(f"Sensor Model: {sensor_model}")
-    print(f"Temperature: {temperature}")
-    print(f"Top K: {top_k}")
-    print(f"Top P: {top_p}")
-    print("=================================\n")
+    print(
+        f"\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received for Avatar '{avatar_name}' (id: {avatar_id})"
+    )
 
-    # Apply defaults for each task if not specified
-    using_defaults = False
-    if not user_llm_provider or not user_llm_model:
-        print("No LLM provider/model specified, using defaults")
+    # Get request params (may be None if not specified)
+    req_provider = data.get("llmProvider")
+    req_model = data.get("llmModel")
+    req_text_query_model = data.get("textQueryModel")
+    req_sensor_model = data.get("sensorModel")
+    req_temperature = data.get("temperature")
+    req_top_k = data.get("topK")
+    req_top_p = data.get("topP")
+
+    # Extract admin defaults for each task
+    chat_defaults = admin_defaults.get("chat", {})
+    text_query_defaults = admin_defaults.get("textQuery", {})
+    sensor_defaults = admin_defaults.get("sensor", {})
+
+    # Track sources for logging - compare request params against admin defaults
+    sources = {}
+
+    # Resolve Provider: check if request matches admin default
+    if req_provider:
+        user_llm_provider = req_provider
+        if chat_defaults.get("provider") == req_provider:
+            sources["provider"] = "Admin defaults"
+        else:
+            sources["provider"] = "user"
+    elif chat_defaults.get("provider"):
+        user_llm_provider = chat_defaults["provider"]
+        sources["provider"] = "Admin defaults"
+    else:
         user_llm_provider = DEFAULT_CHAT_PROVIDER
+        sources["provider"] = "global defaults"
+
+    # Resolve Chat Model
+    if req_model:
+        user_llm_model = req_model
+        if chat_defaults.get("model") == req_model:
+            sources["chat_model"] = "Admin defaults"
+        else:
+            sources["chat_model"] = "user"
+    elif chat_defaults.get("model"):
+        user_llm_model = chat_defaults["model"]
+        sources["chat_model"] = "Admin defaults"
+    else:
         user_llm_model = DEFAULT_CHAT_MODEL
-        using_defaults = True
+        sources["chat_model"] = "global defaults"
 
-    if not text_query_model:
-        text_query_provider = DEFAULT_TEXT_QUERY_PROVIDER
-        text_query_model = DEFAULT_TEXT_QUERY_MODEL
+    # Resolve Temperature
+    if req_temperature is not None:
+        temperature = req_temperature
+        if chat_defaults.get("temperature") == req_temperature:
+            sources["temperature"] = "Admin defaults"
+        else:
+            sources["temperature"] = "user"
+    elif chat_defaults.get("temperature") is not None:
+        temperature = chat_defaults["temperature"]
+        sources["temperature"] = "Admin defaults"
     else:
+        temperature = 0.7
+        sources["temperature"] = "global defaults"
+
+    # Resolve Top K
+    if req_top_k is not None:
+        top_k = req_top_k
+        if chat_defaults.get("top_k") == req_top_k:
+            sources["top_k"] = "Admin defaults"
+        else:
+            sources["top_k"] = "user"
+    elif chat_defaults.get("top_k") is not None:
+        top_k = chat_defaults["top_k"]
+        sources["top_k"] = "Admin defaults"
+    else:
+        top_k = 40
+        sources["top_k"] = "global defaults"
+
+    # Resolve Top P
+    if req_top_p is not None:
+        top_p = req_top_p
+        if chat_defaults.get("top_p") == req_top_p:
+            sources["top_p"] = "Admin defaults"
+        else:
+            sources["top_p"] = "user"
+    elif chat_defaults.get("top_p") is not None:
+        top_p = chat_defaults["top_p"]
+        sources["top_p"] = "Admin defaults"
+    else:
+        top_p = 1.0
+        sources["top_p"] = "global defaults"
+
+    # Resolve Text Query LLM config
+    if req_text_query_model:
+        text_query_model = req_text_query_model
         text_query_provider = user_llm_provider  # Use same provider as chat
-
-    if not sensor_model:
-        sensor_provider = DEFAULT_SENSOR_PROVIDER
-        sensor_model = DEFAULT_SENSOR_MODEL
+        if text_query_defaults.get("model") == req_text_query_model:
+            sources["text_query_model"] = "Admin defaults"
+        else:
+            sources["text_query_model"] = "user"
+    elif text_query_defaults.get("model"):
+        text_query_model = text_query_defaults["model"]
+        text_query_provider = text_query_defaults.get("provider", DEFAULT_TEXT_QUERY_PROVIDER)
+        sources["text_query_model"] = "Admin defaults"
     else:
+        text_query_model = DEFAULT_TEXT_QUERY_MODEL
+        text_query_provider = DEFAULT_TEXT_QUERY_PROVIDER
+        sources["text_query_model"] = "global defaults"
+
+    # Resolve Sensor LLM config
+    if req_sensor_model:
+        sensor_model = req_sensor_model
         sensor_provider = user_llm_provider  # Use same provider as chat
+        if sensor_defaults.get("model") == req_sensor_model:
+            sources["sensor_model"] = "Admin defaults"
+        else:
+            sources["sensor_model"] = "user"
+    elif sensor_defaults.get("model"):
+        sensor_model = sensor_defaults["model"]
+        sensor_provider = sensor_defaults.get("provider", DEFAULT_SENSOR_PROVIDER)
+        sources["sensor_model"] = "Admin defaults"
+    else:
+        sensor_model = DEFAULT_SENSOR_MODEL
+        sensor_provider = DEFAULT_SENSOR_PROVIDER
+        sources["sensor_model"] = "global defaults"
+
+    # Log resolved parameters with sources
+    print("\n=== LLM Parameters (resolved) ===")
+    print(f"Provider: {user_llm_provider} (from: {sources['provider']})")
+    print(f"Chat Model: {user_llm_model} (from: {sources['chat_model']})")
+    print(f"Temperature: {temperature} (from: {sources['temperature']})")
+    print(f"Top K: {top_k} (from: {sources['top_k']})")
+    print(f"Top P: {top_p} (from: {sources['top_p']})")
+    print(f"Text Query Model: {text_query_model} (from: {sources['text_query_model']}, provider: {text_query_provider})")
+    print(f"Sensor Model: {sensor_model} (from: {sources['sensor_model']}, provider: {sensor_provider})")
+    print("=================================\n")
 
     # Get the avatar's system prompt from the pre-loaded config
     system_prompt = avatar_llms[avatar_id].system_prompt
@@ -481,40 +582,48 @@ def chat():
 
         total_context = context
         chat_history[-1]["content"] += (
-            " <End of User message>.        <<The following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.) This instruction is in English, but your response should be in whatever language the user messaged you in:>>  "
+            " <End of User message>.        <<IMPORTANT: If the user explicitly asked you to 'search the web', 'look up on the internet', or requested information from the web, you MUST call web_search(query=\"their search query\") instead of using this RAG data. Output ONLY the function call line. Otherwise, the following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.) This instruction is in English, but your response should be in whatever language the user messaged you in:>>  "
             + total_context
         )
 
     # === Sensor Tool Function Schema ===
     sensor_config = avatar_sensor_tools.get(avatar_id)
+
+    # === Build unified function schema ===
+    # Both functions are listed together so model knows all available options
+
     if sensor_config:
         print("Adding sensor tool function schema to prompt...")
-
-        # Get sensor description from stored config
         sensor_description = sensor_config.get('sensor_description', '')
-
-        # JSON-escape the description for proper embedding
         import json as json_module
         escaped_description = json_module.dumps(sensor_description, ensure_ascii=False)
 
+        # Sensor AND web search both available for this avatar
         function_schema = f"""
 FUNCTIONS:
-You have access to functions.
+You have access to these functions. Call them ONLY when explicitly requested.
 
-IMPORTANT: Only call this function when the user explicitly asks for environmental data analysis or queries that require sensor readings (temperature, pH, air quality, water quality, weather readings, etc.).
+1. analyze_sensor_data(user_query="your question")
+   - MUST call this when user asks about current sensor readings (temperature, pH, water quality, etc.)
 
-You SHOULD NOT include any other text in the response if you call a function.
+2. web_search(query="your search query")
+   - MUST call this when user says "search the web", "look up on the internet", or explicitly requests information from the web/internet
 
-If you decide to invoke the function, you MUST put it in the format:
-
-[
-  {{
-    "name": "analyze_sensor_data",
-    "description": {escaped_description}
-  }}
-]
+When you call a function, output ONLY the function call line, nothing else.
 """
-        chat_history[-1]["content"] += function_schema
+        chat_history[0]["content"] += function_schema
+    else:
+        # No sensor - only web search available
+        function_schema = """
+FUNCTIONS:
+You have access to this function. Call it ONLY when explicitly requested.
+
+1. web_search(query="your search query")
+   - MUST call this when user says "search the web", "look up on the internet", or explicitly requests information from the web/internet
+
+When you call a function, output ONLY the function call line, nothing else.
+"""
+        chat_history[0]["content"] += function_schema
 
     messages_to_send = chat_history
     # print("\n\nMessages to send: ", messages_to_send)
@@ -523,6 +632,7 @@ If you decide to invoke the function, you MUST put it in the format:
     llm = create_llm_for_task(user_llm_provider, user_llm_model, system_prompt_, temperature=temperature, top_k=top_k, top_p=top_p, task_name="chat")
 
     # Try completion with fail-fast fallback to OpenAI if using defaults
+    using_defaults = sources["provider"] != "user" and sources["chat_model"] != "user"
     try:
         chat_completion = llm.complete(messages_to_send)
         response = chat_completion.text
@@ -600,6 +710,53 @@ If you decide to invoke the function, you MUST put it in the format:
                 chat_history + [{"role": "assistant", "content": results}],
             )
             response_2 = chat_completion_2.text.replace("*", "")
+            return jsonify({"reply": response_2})
+
+    elif "web_search" in response:
+        print("Performing web search...")
+        # Extract query from response: [web_search(query="...")]
+        if 'query="' in response:
+            query_start = response.find('query="') + 7
+            query_end = response.find('"', query_start)
+            query = response[query_start:query_end]
+        else:
+            query = ""
+
+        print(f"Web search query: {query}")
+
+        if query:
+            # Brave automatically detects query language - no need for explicit language detection
+            search_results = web_search(query, count=5)
+            print(f"Web search results: {search_results[:200]}...")
+
+            results_msg = (
+                "\nWEB SEARCH RESULTS - you successfully searched the web and found this information:\n"
+                + search_results
+                + "\n\nNow answer the user's original question using these results. Respond conversationally as the Lahn avatar. Use the same language as the user."
+            )
+
+            # Create a clean system prompt WITHOUT function schema for the follow-up
+            clean_system_prompt = system_prompt_
+
+            # Create a clean user message without RAG/function instructions
+            original_user_msg = chat_history[-1]["content"].split("<End of User message>")[0].strip()
+
+            # Build clean message history for follow-up
+            clean_messages = [
+                {"role": "system", "content": clean_system_prompt + results_msg},
+                {"role": "user", "content": original_user_msg}
+            ]
+
+            chat_completion_2 = llm.complete(clean_messages)
+            response_2 = chat_completion_2.text
+
+            if "web_search" in response_2:
+                print("Duplicate web_search call, using results directly")
+                response_2 = f"Web search results for '{query}':\n{search_results}"
+
+            response_2 = response_2.replace("*", "")
+            print("Avatar response after web search:", response_2)
+
             return jsonify({"reply": response_2})
 
     response = response.replace("*", "")
@@ -957,6 +1114,59 @@ def avatar_detail(avatar_id):
     print("Avatars after modification: ", avatars)
     json.dump(avatars, open(avatars_path, "w"))
     avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
+    return jsonify(avatar), 200
+
+
+@avatars_bp.route("/api/avatars/<avatar_id>/llm-defaults", methods=["POST", "DELETE"])
+def avatar_llm_defaults(avatar_id):
+    """
+    POST   /api/avatars/<avatar_id>/llm-defaults -> save Admin defaults for avatar
+    DELETE /api/avatars/<avatar_id>/llm-defaults -> clear Admin defaults for avatar
+    """
+    avatars = json.load(open(avatars_path, "r"))
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+    if avatar is None:
+        return jsonify({"error": "Avatar not found."}), 404
+
+    if request.method == "DELETE":
+        # Clear defaults
+        avatar_name = avatar.get("name", avatar_id)
+        if "llmDefaults" in avatar:
+            del avatar["llmDefaults"]
+            print(f"\n=== Cleared Admin defaults for avatar '{avatar_name}' (id: {avatar_id}) ===\n")
+        json.dump(avatars, open(avatars_path, "w"))
+        return jsonify(avatar), 200
+
+    # POST - save defaults
+    data = request.get_json() or {}
+
+    llm_defaults = {
+        "chat": {
+            "provider": data.get("chatProvider"),
+            "model": data.get("chatModel"),
+            "temperature": data.get("temperature", 0.7),
+            "top_k": data.get("topK", 40),
+            "top_p": data.get("topP", 1.0)
+        },
+        "textQuery": {
+            "provider": data.get("textQueryProvider"),
+            "model": data.get("textQueryModel")
+        },
+        "sensor": {
+            "provider": data.get("sensorProvider"),
+            "model": data.get("sensorModel")
+        }
+    }
+
+    # Remove None values
+    for task in llm_defaults:
+        llm_defaults[task] = {k: v for k, v in llm_defaults[task].items() if v is not None}
+
+    avatar["llmDefaults"] = llm_defaults
+    json.dump(avatars, open(avatars_path, "w"))
+    print(f"\n=== Saved Admin defaults for avatar '{avatar.get('name', avatar_id)}' (id: {avatar_id}) ===")
+    print(f"{llm_defaults}")
+    print("=================================\n")
     return jsonify(avatar), 200
 
 

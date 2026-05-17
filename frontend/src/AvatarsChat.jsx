@@ -38,17 +38,20 @@ export default function MultiAvatarChat() {
   const [isDebateMode, setIsDebateMode] = useState(false);
 
   // --- LLM selection and health state ---
-  const [currentUserLlmProvider, setCurrentUserLlmProvider] = useState('openai');
-  const [currentUserLlmModel, setCurrentUserLlmModel] = useState('gpt-4o-mini');
-  const [currentUserTextQueryModel, setCurrentUserTextQueryModel] = useState('gpt-4o-mini');
-  const [currentUserSensorModel, setCurrentUserSensorModel] = useState('gpt-4o-mini');
+  // Separate providers for each task
+  const [currentUserChatProvider, setCurrentUserChatProvider] = useState('gwdg');
+  const [currentUserChatModel, setCurrentUserChatModel] = useState('gwdg/gemma-3-27b-it');
+  const [currentUserTextQueryProvider, setCurrentUserTextQueryProvider] = useState('gwdg');
+  const [currentUserTextQueryModel, setCurrentUserTextQueryModel] = useState('gwdg/gemma-3-27b-it');
+  const [currentUserSensorProvider, setCurrentUserSensorProvider] = useState('gwdg');
+  const [currentUserSensorModel, setCurrentUserSensorModel] = useState('mistral-large-instruct');
   const [currentUserTemperature, setCurrentUserTemperature] = useState(0.7);
   const [currentUserTopK, setCurrentUserTopK] = useState(40);
   const [currentUserTopP, setCurrentUserTopP] = useState(1.0);
   const [modelHealth, setModelHealth] = useState({});
   const [llmOptions, setLlmOptions] = useState({});
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
-  const [hasLlmDefaults, setHasLlmDefaults] = useState(false);  // Track if current avatar has defaults saved
+  const [hasLlmDefaults, setHasLlmDefaults] = useState(false);
 
   // --- LLM provider management state ---
   const [providerFormOpen, setProviderFormOpen] = useState(false);
@@ -90,9 +93,11 @@ export default function MultiAvatarChat() {
         // Set initial model if available
         const firstProvider = Object.keys(data)[0];
         if (firstProvider && data[firstProvider].models.length > 0) {
-          setCurrentUserLlmProvider(firstProvider);
-          setCurrentUserLlmModel(data[firstProvider].models[0]);
+          setCurrentUserChatProvider(firstProvider);
+          setCurrentUserChatModel(data[firstProvider].models[0]);
+          setCurrentUserTextQueryProvider(firstProvider);
           setCurrentUserTextQueryModel(data[firstProvider].models[0]);
+          setCurrentUserSensorProvider(firstProvider);
           setCurrentUserSensorModel(data[firstProvider].models[0]);
         }
       } catch (err) {
@@ -158,8 +163,8 @@ export default function MultiAvatarChat() {
 
       // Load chat defaults
       if (defaults.chat) {
-        if (defaults.chat.provider) setCurrentUserLlmProvider(defaults.chat.provider);
-        if (defaults.chat.model) setCurrentUserLlmModel(defaults.chat.model);
+        if (defaults.chat.provider) setCurrentUserChatProvider(defaults.chat.provider);
+        if (defaults.chat.model) setCurrentUserChatModel(defaults.chat.model);
         if (defaults.chat.temperature) setCurrentUserTemperature(defaults.chat.temperature);
         if (defaults.chat.top_k) setCurrentUserTopK(defaults.chat.top_k);
         if (defaults.chat.top_p) setCurrentUserTopP(defaults.chat.top_p);
@@ -167,11 +172,13 @@ export default function MultiAvatarChat() {
 
       // Load text query defaults
       if (defaults.textQuery) {
+        if (defaults.textQuery.provider) setCurrentUserTextQueryProvider(defaults.textQuery.provider);
         if (defaults.textQuery.model) setCurrentUserTextQueryModel(defaults.textQuery.model);
       }
 
       // Load sensor defaults
       if (defaults.sensor) {
+        if (defaults.sensor.provider) setCurrentUserSensorProvider(defaults.sensor.provider);
         if (defaults.sensor.model) setCurrentUserSensorModel(defaults.sensor.model);
       }
 
@@ -180,9 +187,11 @@ export default function MultiAvatarChat() {
       // No Admin defaults saved, use global defaults
       const firstProvider = Object.keys(llmOptions)[0];
       if (firstProvider && llmOptions[firstProvider].models.length > 0) {
-        setCurrentUserLlmProvider(firstProvider);
-        setCurrentUserLlmModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserChatProvider(firstProvider);
+        setCurrentUserChatModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserTextQueryProvider(firstProvider);
         setCurrentUserTextQueryModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserSensorProvider(firstProvider);
         setCurrentUserSensorModel(llmOptions[firstProvider].models[0]);
       }
       setCurrentUserTemperature(0.7);
@@ -201,14 +210,14 @@ export default function MultiAvatarChat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chatProvider: currentUserLlmProvider,
-          chatModel: currentUserLlmModel,
+          chatProvider: currentUserChatProvider,
+          chatModel: currentUserChatModel,
           temperature: currentUserTemperature,
           topK: currentUserTopK,
           topP: currentUserTopP,
-          textQueryProvider: currentUserLlmProvider,
+          textQueryProvider: currentUserTextQueryProvider,
           textQueryModel: currentUserTextQueryModel,
-          sensorProvider: currentUserLlmProvider,
+          sensorProvider: currentUserSensorProvider,
           sensorModel: currentUserSensorModel,
         }),
       });
@@ -473,9 +482,13 @@ export default function MultiAvatarChat() {
       setProviderFormOpen(false);
 
       // Select the newly created provider and its first model
-      setCurrentUserLlmProvider(newProvider.id);
+      setCurrentUserChatProvider(newProvider.id);
+      setCurrentUserTextQueryProvider(newProvider.id);
+      setCurrentUserSensorProvider(newProvider.id);
       if (newProvider.models && newProvider.models.length > 0) {
-        setCurrentUserLlmModel(newProvider.models[0]);
+        setCurrentUserChatModel(newProvider.models[0]);
+        setCurrentUserTextQueryModel(newProvider.models[0]);
+        setCurrentUserSensorModel(newProvider.models[0]);
       }
     } catch (err) {
       console.error(err);
@@ -503,12 +516,14 @@ export default function MultiAvatarChat() {
             ...payload,
             avatarId: selectedAvatar.id,
             avatarName: selectedAvatar.name,
-            llmProvider: currentUserLlmProvider,
-            llmModel: currentUserLlmModel,
+            chatProvider: currentUserChatProvider,
+            chatModel: currentUserChatModel,
             temperature: currentUserTemperature,
             topK: currentUserTopK,
             topP: currentUserTopP,
+            textQueryProvider: currentUserTextQueryProvider,
             textQueryModel: currentUserTextQueryModel,
+            sensorProvider: currentUserSensorProvider,
             sensorModel: currentUserSensorModel,
             ...(isDebateMode && selectedTopic
               ? { topic: selectedTopic }
@@ -680,50 +695,32 @@ export default function MultiAvatarChat() {
 
           {llmConfigExpanded && (
             <div className="mt-2 space-y-2">
+              {/* Chat provider and model */}
               <div className="flex items-center justify-center space-x-4">
                   <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700">Provider:</label>
+                      <label className="font-poetic text-stone-700">Chat:</label>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic"
-                          value={currentUserLlmProvider}
+                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserChatProvider}
                           onChange={e => {
-                              setCurrentUserLlmProvider(e.target.value);
-                              const models = llmOptions[e.target.value].models;
-                              setCurrentUserLlmModel(models[0]);
-                              setCurrentUserTextQueryModel(models[0]);
-                              setCurrentUserSensorModel(models[0]);
+                              setCurrentUserChatProvider(e.target.value);
+                              setCurrentUserChatModel(llmOptions[e.target.value].models[0]);
                           }}
                       >
                           {Object.keys(llmOptions).map(key => (
                               <option key={key} value={key}>{llmOptions[key].name}</option>
                           ))}
                       </select>
-                      <Button
-                        variant="outline"
-                        className="font-poetic text-xs"
-                        onClick={openCreateProviderForm}
-                      >
-                        + New Provider
-                      </Button>
-                  </div>
-              </div>
-
-              <div className="flex items-center justify-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700">Chat:</label>
                       <select
                           className="p-2 rounded-md border bg-white font-poetic"
-                          value={currentUserLlmModel}
-                          onChange={e => setCurrentUserLlmModel(e.target.value)}
+                          value={currentUserChatModel}
+                          onChange={e => setCurrentUserChatModel(e.target.value)}
                       >
-                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                          {llmOptions[currentUserChatProvider]?.models.map(model => {
                               const status = modelHealth[model];
                               let indicator = '⚪';
-                              if (status === 'online') {
-                                  indicator = '🟢';
-                              } else if (status === 'offline') {
-                                  indicator = '🔴';
-                              }
+                              if (status === 'online') indicator = '🟢';
+                              else if (status === 'offline') indicator = '🔴';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
                                       {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
@@ -746,7 +743,7 @@ export default function MultiAvatarChat() {
                       <span className="text-xs text-stone-600 w-6">{currentUserTemperature}</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                      <label className={`font-poetic text-sm ${currentUserLlmProvider === 'openai' ? 'text-stone-400' : 'text-stone-700'}`}>Top K:</label>
+                      <label className={`font-poetic text-sm ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-700'}`}>Top K:</label>
                       <input
                           type="range"
                           min="1"
@@ -755,9 +752,9 @@ export default function MultiAvatarChat() {
                           value={currentUserTopK}
                           onChange={e => setCurrentUserTopK(parseInt(e.target.value))}
                           className="w-20"
-                          disabled={currentUserLlmProvider === 'openai'}
+                          disabled={currentUserChatProvider === 'openai'}
                       />
-                      <span className={`text-xs w-6 ${currentUserLlmProvider === 'openai' ? 'text-stone-400' : 'text-stone-600'}`}>{currentUserLlmProvider === 'openai' ? '—' : currentUserTopK}</span>
+                      <span className={`text-xs w-6 ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-600'}`}>{currentUserChatProvider === 'openai' ? '—' : currentUserTopK}</span>
                   </div>
                   <div className="flex items-center space-x-2">
                       <label className="font-poetic text-stone-700 text-sm">Top P:</label>
@@ -774,48 +771,71 @@ export default function MultiAvatarChat() {
                   </div>
               </div>
 
+              {/* Text Query provider and model */}
               <div className="flex items-center justify-center space-x-4">
                   <div className="flex items-center space-x-2">
                       <label className="font-poetic text-stone-700">Text Query:</label>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic"
+                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserTextQueryProvider}
+                          onChange={e => {
+                              setCurrentUserTextQueryProvider(e.target.value);
+                              setCurrentUserTextQueryModel(llmOptions[e.target.value].models[0]);
+                          }}
+                      >
+                          {Object.keys(llmOptions).map(key => (
+                              <option key={key} value={key}>{llmOptions[key].name}</option>
+                          ))}
+                      </select>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserTextQueryModel}
                           onChange={e => setCurrentUserTextQueryModel(e.target.value)}
                       >
-                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                          {llmOptions[currentUserTextQueryProvider]?.models.map(model => {
                               const status = modelHealth[model];
                               let indicator = '⚪';
-                              if (status === 'online') {
-                                  indicator = '🟢';
-                              } else if (status === 'offline') {
-                                  indicator = '🔴';
-                              }
+                              if (status === 'online') indicator = '🟢';
+                              else if (status === 'offline') indicator = '🔴';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                      {indicator} {model}
                                   </option>
                               );
                           })}
                       </select>
                   </div>
+              </div>
+
+              {/* Sensor provider and model */}
+              <div className="flex items-center justify-center space-x-4">
                   <div className="flex items-center space-x-2">
                       <label className="font-poetic text-stone-700">Sensor:</label>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic"
+                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserSensorProvider}
+                          onChange={e => {
+                              setCurrentUserSensorProvider(e.target.value);
+                              setCurrentUserSensorModel(llmOptions[e.target.value].models[0]);
+                          }}
+                      >
+                          {Object.keys(llmOptions).map(key => (
+                              <option key={key} value={key}>{llmOptions[key].name}</option>
+                          ))}
+                      </select>
+                      <select
+                          className="p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserSensorModel}
                           onChange={e => setCurrentUserSensorModel(e.target.value)}
                       >
-                          {llmOptions[currentUserLlmProvider]?.models.map(model => {
+                          {llmOptions[currentUserSensorProvider]?.models.map(model => {
                               const status = modelHealth[model];
                               let indicator = '⚪';
-                              if (status === 'online') {
-                                  indicator = '🟢';
-                              } else if (status === 'offline') {
-                                  indicator = '🔴';
-                              }
+                              if (status === 'online') indicator = '🟢';
+                              else if (status === 'offline') indicator = '🔴';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                      {indicator} {model}
                                   </option>
                               );
                           })}

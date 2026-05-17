@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import re
 import threading
 from datetime import datetime
 
@@ -315,13 +316,20 @@ def chat():
     )
 
     # Get request params (may be None if not specified)
-    req_provider = data.get("llmProvider")
-    req_model = data.get("llmModel")
-    req_text_query_model = data.get("textQueryModel")
-    req_sensor_model = data.get("sensorModel")
+    # Chat params
+    req_chat_provider = data.get("chatProvider") or data.get("llmProvider")  # Backward compat
+    req_chat_model = data.get("chatModel") or data.get("llmModel")  # Backward compat
     req_temperature = data.get("temperature")
     req_top_k = data.get("topK")
     req_top_p = data.get("topP")
+
+    # Text query params (separate provider/model)
+    req_text_query_provider = data.get("textQueryProvider")
+    req_text_query_model = data.get("textQueryModel")
+
+    # Sensor params (separate provider/model)
+    req_sensor_provider = data.get("sensorProvider")
+    req_sensor_model = data.get("sensorModel")
 
     # Extract admin defaults for each task
     chat_defaults = admin_defaults.get("chat", {})
@@ -331,32 +339,33 @@ def chat():
     # Track sources for logging - compare request params against admin defaults
     sources = {}
 
-    # Resolve Provider: check if request matches admin default
-    if req_provider:
-        user_llm_provider = req_provider
-        if chat_defaults.get("provider") == req_provider:
-            sources["provider"] = "Admin defaults"
+    # === Resolve Chat LLM ===
+    # Resolve Provider
+    if req_chat_provider:
+        user_chat_provider = req_chat_provider
+        if chat_defaults.get("provider") == req_chat_provider:
+            sources["chat_provider"] = "Admin defaults"
         else:
-            sources["provider"] = "user"
+            sources["chat_provider"] = "user"
     elif chat_defaults.get("provider"):
-        user_llm_provider = chat_defaults["provider"]
-        sources["provider"] = "Admin defaults"
+        user_chat_provider = chat_defaults["provider"]
+        sources["chat_provider"] = "Admin defaults"
     else:
-        user_llm_provider = DEFAULT_CHAT_PROVIDER
-        sources["provider"] = "global defaults"
+        user_chat_provider = DEFAULT_CHAT_PROVIDER
+        sources["chat_provider"] = "global defaults"
 
     # Resolve Chat Model
-    if req_model:
-        user_llm_model = req_model
-        if chat_defaults.get("model") == req_model:
+    if req_chat_model:
+        user_chat_model = req_chat_model
+        if chat_defaults.get("model") == req_chat_model:
             sources["chat_model"] = "Admin defaults"
         else:
             sources["chat_model"] = "user"
     elif chat_defaults.get("model"):
-        user_llm_model = chat_defaults["model"]
+        user_chat_model = chat_defaults["model"]
         sources["chat_model"] = "Admin defaults"
     else:
-        user_llm_model = DEFAULT_CHAT_MODEL
+        user_chat_model = DEFAULT_CHAT_MODEL
         sources["chat_model"] = "global defaults"
 
     # Resolve Temperature
@@ -401,49 +410,74 @@ def chat():
         top_p = 1.0
         sources["top_p"] = "global defaults"
 
-    # Resolve Text Query LLM config
+    # === Resolve Text Query LLM ===
+    # Resolve Provider
+    if req_text_query_provider:
+        text_query_provider = req_text_query_provider
+        if text_query_defaults.get("provider") == req_text_query_provider:
+            sources["text_query_provider"] = "Admin defaults"
+        else:
+            sources["text_query_provider"] = "user"
+    elif text_query_defaults.get("provider"):
+        text_query_provider = text_query_defaults["provider"]
+        sources["text_query_provider"] = "Admin defaults"
+    else:
+        # If no separate provider specified, use chat provider as fallback
+        text_query_provider = user_chat_provider
+        sources["text_query_provider"] = "inherited from chat"
+
+    # Resolve Model
     if req_text_query_model:
         text_query_model = req_text_query_model
-        text_query_provider = user_llm_provider  # Use same provider as chat
         if text_query_defaults.get("model") == req_text_query_model:
             sources["text_query_model"] = "Admin defaults"
         else:
             sources["text_query_model"] = "user"
     elif text_query_defaults.get("model"):
         text_query_model = text_query_defaults["model"]
-        text_query_provider = text_query_defaults.get("provider", DEFAULT_TEXT_QUERY_PROVIDER)
         sources["text_query_model"] = "Admin defaults"
     else:
         text_query_model = DEFAULT_TEXT_QUERY_MODEL
-        text_query_provider = DEFAULT_TEXT_QUERY_PROVIDER
         sources["text_query_model"] = "global defaults"
 
-    # Resolve Sensor LLM config
+    # === Resolve Sensor LLM ===
+    # Resolve Provider
+    if req_sensor_provider:
+        sensor_provider = req_sensor_provider
+        if sensor_defaults.get("provider") == req_sensor_provider:
+            sources["sensor_provider"] = "Admin defaults"
+        else:
+            sources["sensor_provider"] = "user"
+    elif sensor_defaults.get("provider"):
+        sensor_provider = sensor_defaults["provider"]
+        sources["sensor_provider"] = "Admin defaults"
+    else:
+        # If no separate provider specified, use chat provider as fallback
+        sensor_provider = user_chat_provider
+        sources["sensor_provider"] = "inherited from chat"
+
+    # Resolve Model
     if req_sensor_model:
         sensor_model = req_sensor_model
-        sensor_provider = user_llm_provider  # Use same provider as chat
         if sensor_defaults.get("model") == req_sensor_model:
             sources["sensor_model"] = "Admin defaults"
         else:
             sources["sensor_model"] = "user"
     elif sensor_defaults.get("model"):
         sensor_model = sensor_defaults["model"]
-        sensor_provider = sensor_defaults.get("provider", DEFAULT_SENSOR_PROVIDER)
         sources["sensor_model"] = "Admin defaults"
     else:
         sensor_model = DEFAULT_SENSOR_MODEL
-        sensor_provider = DEFAULT_SENSOR_PROVIDER
         sources["sensor_model"] = "global defaults"
 
     # Log resolved parameters with sources
     print("\n=== LLM Parameters (resolved) ===")
-    print(f"Provider: {user_llm_provider} (from: {sources['provider']})")
-    print(f"Chat Model: {user_llm_model} (from: {sources['chat_model']})")
+    print(f"Chat: provider={user_chat_provider} (from: {sources['chat_provider']}), model={user_chat_model} (from: {sources['chat_model']})")
     print(f"Temperature: {temperature} (from: {sources['temperature']})")
     print(f"Top K: {top_k} (from: {sources['top_k']})")
     print(f"Top P: {top_p} (from: {sources['top_p']})")
-    print(f"Text Query Model: {text_query_model} (from: {sources['text_query_model']}, provider: {text_query_provider})")
-    print(f"Sensor Model: {sensor_model} (from: {sources['sensor_model']}, provider: {sensor_provider})")
+    print(f"Text Query: provider={text_query_provider} (from: {sources['text_query_provider']}), model={text_query_model} (from: {sources['text_query_model']})")
+    print(f"Sensor: provider={sensor_provider} (from: {sources['sensor_provider']}), model={sensor_model} (from: {sources['sensor_model']})")
     print("=================================\n")
 
     # Get the avatar's system prompt from the pre-loaded config
@@ -629,16 +663,16 @@ When you call a function, output ONLY the function call line, nothing else.
     # print("\n\nMessages to send: ", messages_to_send)
 
     # === Create chat LLM for main conversation ===
-    llm = create_llm_for_task(user_llm_provider, user_llm_model, system_prompt_, temperature=temperature, top_k=top_k, top_p=top_p, task_name="chat")
+    llm = create_llm_for_task(user_chat_provider, user_chat_model, system_prompt_, temperature=temperature, top_k=top_k, top_p=top_p, task_name="chat")
 
     # Try completion with fail-fast fallback to OpenAI if using defaults
-    using_defaults = sources["provider"] != "user" and sources["chat_model"] != "user"
+    using_defaults = sources["chat_provider"] != "user" and sources["chat_model"] != "user"
     try:
         chat_completion = llm.complete(messages_to_send)
         response = chat_completion.text
     except (RuntimeError, requests.exceptions.RequestException) as e:
         # If we're using defaults and GWDG fails, retry with OpenAI
-        if using_defaults and user_llm_provider == 'gwdg':
+        if using_defaults and user_chat_provider == 'gwdg':
             print(f"GWDG failed with error: {e}")
             print("Retrying with OpenAI fallback...")
             llm = create_llm_for_task('openai', 'gpt-4o-mini', system_prompt_, task_name="chat_fallback")
@@ -714,13 +748,10 @@ When you call a function, output ONLY the function call line, nothing else.
 
     elif "web_search" in response:
         print("Performing web search...")
-        # Extract query from response: [web_search(query="...")]
-        if 'query="' in response:
-            query_start = response.find('query="') + 7
-            query_end = response.find('"', query_start)
-            query = response[query_start:query_end]
-        else:
-            query = ""
+        # Extract query: handle both function call and JSON formats
+        # Function call: query="...", JSON: "query": "..."
+        match = re.search(r'query\s*[:=]\s*["\']([^"\']+)["\']', response)
+        query = match.group(1) if match else ""
 
         print(f"Web search query: {query}")
 

@@ -724,7 +724,11 @@ class SensorsTool:
 
     def _fetch_sensor_data_df(self) -> pd.DataFrame:
         print(f"Fetching sensor data from {self.sensor_url}...")
-        resp = requests.get(self.sensor_url)
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Lahn-Avatar/1.0"
+        }
+        resp = requests.get(self.sensor_url, headers=headers)
         resp.raise_for_status()
         data = resp.json()
 

@@ -696,9 +696,9 @@ export default function MultiAvatarChat() {
           {llmConfigExpanded && (
             <div className="mt-2 space-y-2">
               {/* Chat provider and model */}
-              <div className="flex items-center justify-center space-x-4">
+              <div className="flex items-center justify-start space-x-4">
                   <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700">Chat:</label>
+                      <label className="font-poetic text-stone-700 w-24">Chat:</label>
                       <select
                           className="p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserChatProvider}
@@ -772,9 +772,9 @@ export default function MultiAvatarChat() {
               </div>
 
               {/* Text Query provider and model */}
-              <div className="flex items-center justify-center space-x-4">
+              <div className="flex items-center justify-start space-x-4">
                   <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700">Text Query:</label>
+                      <label className="font-poetic text-stone-700 w-24">Text Query:</label>
                       <select
                           className="p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserTextQueryProvider}
@@ -808,9 +808,9 @@ export default function MultiAvatarChat() {
               </div>
 
               {/* Sensor provider and model */}
-              <div className="flex items-center justify-center space-x-4">
+              <div className="flex items-center justify-start space-x-4">
                   <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700">Sensor:</label>
+                      <label className="font-poetic text-stone-700 w-24">Sensor:</label>
                       <select
                           className="p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserSensorProvider}

@@ -1399,5 +1399,30 @@ def llm_options():
 app.register_blueprint(llm_providers_bp)
 
 
+import re
+
+ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+FLASK_WARN = 'WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.'
+
+
+@app.route("/api/backend-log", methods=["GET"])
+def backend_log():
+    log_path = os.path.expanduser("~/backend_log.0")
+    try:
+        with open(log_path, "r", errors="replace") as f:
+            lines = f.readlines()
+        # Keep last 4000 lines
+        lines = lines[-4000:]
+        # Strip ANSI escape codes for browser display
+        lines = [ANSI_RE.sub("", line) for line in lines]
+        # Filter out the Flask dev server warning
+        lines = [line for line in lines if FLASK_WARN not in line]
+        return jsonify({"log": "".join(lines)})
+    except FileNotFoundError:
+        return jsonify({"error": "Log file not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(debug=False, use_reloader=False, port=5001)

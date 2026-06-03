@@ -53,6 +53,13 @@ export default function MultiAvatarChat() {
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
   const [hasLlmDefaults, setHasLlmDefaults] = useState(false);
 
+  // --- backend log viewer state ---
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [backendLog, setBackendLog] = useState("");
+  const backendLogRef = useRef(null);
+  const backendLogPreRef = useRef(null);
+  const backendLogFirstLoadRef = useRef(true);
+
   // --- LLM provider management state ---
   const [providerFormOpen, setProviderFormOpen] = useState(false);
   const [providerSaving, setProviderSaving] = useState(false);
@@ -151,6 +158,40 @@ export default function MultiAvatarChat() {
     // Fetch health status in background after component mounts
     fetchHealthStatus();
   }, []);
+
+  // === Backend log polling ===
+  const fetchBackendLog = async () => {
+    try {
+      const resp = await fetch("/api/backend-log");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setBackendLog(data.log);
+    } catch (e) {
+      console.error("Error loading backend log:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (!logExpanded) return;
+    fetchBackendLog();
+    const timer = setInterval(fetchBackendLog, 3000);
+    return () => clearInterval(timer);
+  }, [logExpanded]);
+
+  useEffect(() => {
+    if (backendLog.length === 0) return;
+    if (backendLogFirstLoadRef.current) {
+      backendLogFirstLoadRef.current = false;
+      backendLogRef.current?.scrollIntoView();
+      return;
+    }
+    const el = backendLogPreRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    if (isNearBottom) {
+      backendLogRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [backendLog]);
 
   // === Load Admin defaults when avatar changes ===
   useEffect(() => {
@@ -618,7 +659,7 @@ export default function MultiAvatarChat() {
       style={{ fontFamily: "'Chakra Petch', sans-serif" }}
     >
       <motion.h1
-        className="text-3xl font-poetic text-amber-700 mb-2"
+        className="text-2xl md:text-3xl font-poetic text-amber-700 mb-2"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1 }}
@@ -626,7 +667,7 @@ export default function MultiAvatarChat() {
         Avatar Lab: Conversations with Many Voices.
       </motion.h1>
       <motion.h3
-        className="text-xl font-poetic text-amber-700 italic mb-4 text-center"
+        className="text-base md:text-xl font-poetic text-amber-700 italic mb-4 text-center px-2"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1 }}
@@ -636,14 +677,14 @@ export default function MultiAvatarChat() {
 
       {/* Avatar and LLM selection + controls */}
       <div className="w-full max-w-5xl flex flex-col gap-4 mb-4 px-4">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
           <div className="flex-1">
             <label className="block mb-1 font-poetic text-stone-800">
               Active avatar
             </label>
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
               <select
-                className="w-full p-2 rounded-md border bg-white font-poetic"
+                className="flex-1 p-2 rounded-md border bg-white font-poetic"
                 value={selectedAvatarId}
                 onChange={e => setSelectedAvatarId(e.target.value)}
               >
@@ -654,22 +695,24 @@ export default function MultiAvatarChat() {
                   </option>
                 ))}
               </select>
-              <Button
-                variant="outline"
-                className="font-poetic"
-                onClick={openCreateAvatarForm}
-              >
-                + New
-              </Button>
-              {selectedAvatar && (
+              <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  className="font-poetic"
-                  onClick={() => openEditAvatarForm(selectedAvatar)}
+                  className="font-poetic flex-1 sm:flex-none"
+                  onClick={openCreateAvatarForm}
                 >
-                  Edit
+                  + New
                 </Button>
-              )}
+                {selectedAvatar && (
+                  <Button
+                    variant="outline"
+                    className="font-poetic flex-1 sm:flex-none"
+                    onClick={() => openEditAvatarForm(selectedAvatar)}
+                  >
+                    Edit
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center space-x-4">
@@ -694,13 +737,13 @@ export default function MultiAvatarChat() {
           </button>
 
           {llmConfigExpanded && (
-            <div className="mt-2 space-y-2">
+            <div className="mt-2 space-y-3">
               {/* Chat provider and model */}
-              <div className="flex items-center justify-start space-x-4">
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700 w-24">Chat:</label>
+              <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm">Chat</label>
+                  <div className="flex flex-wrap items-center gap-2">
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserChatProvider}
                           onChange={e => {
                               setCurrentUserChatProvider(e.target.value);
@@ -712,7 +755,7 @@ export default function MultiAvatarChat() {
                           ))}
                       </select>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserChatModel}
                           onChange={e => setCurrentUserChatModel(e.target.value)}
                       >
@@ -729,54 +772,56 @@ export default function MultiAvatarChat() {
                           })}
                       </select>
                   </div>
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700 text-sm">Temp:</label>
-                      <input
-                          type="range"
-                          min="0"
-                          max="2"
-                          step="0.1"
-                          value={currentUserTemperature}
-                          onChange={e => setCurrentUserTemperature(parseFloat(e.target.value))}
-                          className="w-20"
-                      />
-                      <span className="text-xs text-stone-600 w-6">{currentUserTemperature}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                      <label className={`font-poetic text-sm ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-700'}`}>Top K:</label>
-                      <input
-                          type="range"
-                          min="1"
-                          max="100"
-                          step="1"
-                          value={currentUserTopK}
-                          onChange={e => setCurrentUserTopK(parseInt(e.target.value))}
-                          className="w-20"
-                          disabled={currentUserChatProvider === 'openai'}
-                      />
-                      <span className={`text-xs w-6 ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-600'}`}>{currentUserChatProvider === 'openai' ? '—' : currentUserTopK}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700 text-sm">Top P:</label>
-                      <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={currentUserTopP}
-                          onChange={e => setCurrentUserTopP(parseFloat(e.target.value))}
-                          className="w-20"
-                      />
-                      <span className="text-xs text-stone-600 w-8">{currentUserTopP}</span>
+                  <div className="flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-2">
+                          <label className="font-poetic text-stone-700 text-sm whitespace-nowrap">Temp:</label>
+                          <input
+                              type="range"
+                              min="0"
+                              max="2"
+                              step="0.1"
+                              value={currentUserTemperature}
+                              onChange={e => setCurrentUserTemperature(parseFloat(e.target.value))}
+                              className="w-20"
+                          />
+                          <span className="text-xs text-stone-600 w-6">{currentUserTemperature}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <label className={`font-poetic text-sm whitespace-nowrap ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-700'}`}>Top K:</label>
+                          <input
+                              type="range"
+                              min="1"
+                              max="100"
+                              step="1"
+                              value={currentUserTopK}
+                              onChange={e => setCurrentUserTopK(parseInt(e.target.value))}
+                              className="w-20"
+                              disabled={currentUserChatProvider === 'openai'}
+                          />
+                          <span className={`text-xs w-6 ${currentUserChatProvider === 'openai' ? 'text-stone-400' : 'text-stone-600'}`}>{currentUserChatProvider === 'openai' ? '—' : currentUserTopK}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <label className="font-poetic text-stone-700 text-sm whitespace-nowrap">Top P:</label>
+                          <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={currentUserTopP}
+                              onChange={e => setCurrentUserTopP(parseFloat(e.target.value))}
+                              className="w-20"
+                          />
+                          <span className="text-xs text-stone-600 w-8">{currentUserTopP}</span>
+                      </div>
                   </div>
               </div>
 
               {/* Text Query provider and model */}
-              <div className="flex items-center justify-start space-x-4">
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700 w-24">Text Query:</label>
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Text Query</label>
+                  <div className="flex flex-wrap items-center gap-2">
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserTextQueryProvider}
                           onChange={e => {
                               setCurrentUserTextQueryProvider(e.target.value);
@@ -788,7 +833,7 @@ export default function MultiAvatarChat() {
                           ))}
                       </select>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserTextQueryModel}
                           onChange={e => setCurrentUserTextQueryModel(e.target.value)}
                       >
@@ -808,11 +853,11 @@ export default function MultiAvatarChat() {
               </div>
 
               {/* Sensor provider and model */}
-              <div className="flex items-center justify-start space-x-4">
-                  <div className="flex items-center space-x-2">
-                      <label className="font-poetic text-stone-700 w-24">Sensor:</label>
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Sensor</label>
+                  <div className="flex flex-wrap items-center gap-2">
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserSensorProvider}
                           onChange={e => {
                               setCurrentUserSensorProvider(e.target.value);
@@ -824,7 +869,7 @@ export default function MultiAvatarChat() {
                           ))}
                       </select>
                       <select
-                          className="p-2 rounded-md border bg-white font-poetic text-sm"
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
                           value={currentUserSensorModel}
                           onChange={e => setCurrentUserSensorModel(e.target.value)}
                       >
@@ -868,6 +913,35 @@ export default function MultiAvatarChat() {
         {/* Horizontal separator */}
         <hr className="w-full border-stone-300" />
 
+        {/* Collapsible Backend Log */}
+        <div className="w-full">
+          <button
+            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+            onClick={() => setLogExpanded(!logExpanded)}
+          >
+            <span className="text-lg">{logExpanded ? '▼' : '▶'}</span>
+            <span className="font-semibold">Backend Log</span>
+          </button>
+
+          {logExpanded && (
+            <div className="mt-2">
+              <Card className="bg-zinc-100 border border-zinc-300 overflow-hidden">
+                <pre
+                  ref={backendLogPreRef}
+                  className="overflow-y-auto px-3 md:px-4 py-3 text-stone-900 text-xs leading-relaxed"
+                  style={{ fontFamily: "monospace", maxHeight: "50vh", whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+                >
+                  {backendLog || "Loading..."}
+                  <div ref={backendLogRef} />
+                </pre>
+              </Card>
+            </div>
+          )}
+        </div>
+
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
+
         {selectedAvatar && (
             <div className="flex gap-2 items-center justify-center mt-2">
               <Button
@@ -890,7 +964,7 @@ export default function MultiAvatarChat() {
           )}
 
           {selectedAvatar && (
-            <div className="mt-4 text-xs text-stone-700 space-y-1">
+            <div className="mt-4 text-xs md:text-sm text-stone-700 space-y-1 break-all">
               <div><span className="font-semibold">Prompt:</span> {selectedAvatar.systemPromptUrl || "—"}</div>
               <div><span className="font-semibold">Context:</span> {selectedAvatar.contextDocsUrl || "—"}</div>
               <div><span className="font-semibold">Sensors:</span> {selectedAvatar.sensorApiUrl || "—"}</div>
@@ -919,21 +993,21 @@ export default function MultiAvatarChat() {
             ))}
           </select>
           {selectedTopic && (
-            <div className="mt-2 p-3 bg-white rounded-md border text-stone-700 font-poetic">
+            <div className="mt-2 p-2 md:p-3 bg-white rounded-md border text-sm md:text-base text-stone-700 font-poetic">
               {topicDescriptions[selectedTopic]}
             </div>
           )}
         </div>
       )}
 
-      <motion.div className="px-4 w-full max-w-5xl mx-auto flex-1 overflow-visible">
+      <motion.div className="px-2 md:px-4 w-full max-w-5xl mx-auto flex-1 overflow-visible">
         <div className={`flex flex-col md:flex-row ${isDebateMode ? 'md:space-x-4' : ''} min-h-0`}>
           <div className={`${isDebateMode ? 'md:flex-1' : 'w-full'} min-h-0 rounded-2xl mb-4 md:mb-0`}>
             <Card className="flex flex-col h-full min-h-0 shadow-lg bg-white/90">
               {/* scrollable messages */}
               <div
                 onWheel={e => e.stopPropagation()}
-                className="flex-1 h-[70vh] min-h-0 overflow-y-auto px-8 py-6"
+                className="flex-1 h-[60vh] md:h-[70vh] min-h-0 overflow-y-auto px-3 md:px-8 py-4 md:py-6"
               >
                 {messages.map((msg, i) => (
                   <motion.div
@@ -944,7 +1018,7 @@ export default function MultiAvatarChat() {
                     className={`flex ${msg.sender === 'avatar' ? 'justify-start' : 'justify-end'} mb-4`}
                   >
                     <div
-                      className={`max-w-lg px-4 py-3 rounded-xl shadow text-base md:text-lg whitespace-pre-wrap ${
+                      className={`max-w-xs md:max-w-lg px-4 py-3 rounded-xl shadow text-sm md:text-lg whitespace-pre-wrap ${
                         msg.sender === 'avatar'
                           ? 'bg-lime-100 text-stone-900'
                           : 'bg-white text-stone-800'
@@ -969,7 +1043,7 @@ export default function MultiAvatarChat() {
               </div>
 
               {/* input bar */}
-              <div className="flex items-center gap-2 px-6 py-4 border-t bg-stone-50">
+              <div className="flex items-center gap-2 px-3 md:px-6 py-3 md:py-4 border-t bg-stone-50">
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -1004,10 +1078,10 @@ export default function MultiAvatarChat() {
           </div>
 
           {isDebateMode && (
-            <div className="w-full md:w-1/3 bg-white rounded-2xl shadow p-4 h-[60vh] overflow-y-auto">
-              <h4 className="font-poetic text-lg font-bold mb-2">Debate Summary</h4>
+            <div className="w-full md:w-1/3 bg-white rounded-2xl shadow p-3 md:p-4 h-[40vh] md:h-[60vh] overflow-y-auto">
+              <h4 className="font-poetic text-base md:text-lg font-bold mb-2">Debate Summary</h4>
               <div
-                className="text-sm text-stone-700 whitespace-pre-wrap"
+                className="text-xs md:text-sm text-stone-700 whitespace-pre-wrap"
                 dangerouslySetInnerHTML={{ __html: debateSummary }}
               />
             </div>
@@ -1017,9 +1091,9 @@ export default function MultiAvatarChat() {
 
       {/* Simple avatar create/edit panel (inline "modal") */}
       {avatarFormOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-poetic mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-2">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 md:p-6">
+            <h2 className="text-lg md:text-xl font-poetic mb-4">
               {avatarFormMode === "create" ? "Create New Avatar" : "Edit Avatar"}
             </h2>
             <form onSubmit={handleAvatarFormSubmit} className="space-y-4">
@@ -1145,9 +1219,9 @@ export default function MultiAvatarChat() {
 
       {/* LLM Provider create/edit panel */}
       {providerFormOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-poetic mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-2">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 md:p-6">
+            <h2 className="text-lg md:text-xl font-poetic mb-4">
               Add New LLM Provider
             </h2>
             <form onSubmit={handleProviderFormSubmit} className="space-y-4">

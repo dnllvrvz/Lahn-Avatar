@@ -10,7 +10,6 @@ export default function BackendLog() {
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
   const preRef = useRef(null);
-  const stickyRef = useRef(true);
 
   const fetchLog = async () => {
     try {
@@ -30,20 +29,24 @@ export default function BackendLog() {
     return () => clearInterval(timer);
   }, []);
 
-  // Track whether user is scrolled to the bottom
-  const handleScroll = () => {
-    const el = preRef.current;
-    if (!el) return;
-    // Within 20px of bottom = "stuck to bottom"
-    stickyRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
-  };
+  const firstLoadRef = useRef(true);
 
-  // Auto-scroll only on initial load; afterwards keep position unless already pinned
+  // Single effect: on first fetch, scroll to bottom; on subsequent updates,
+  // only scroll if the user is already near the bottom.
   useEffect(() => {
+    if (log.length === 0) return;
+
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false;
+      bottomRef.current?.scrollIntoView();
+      return;
+    }
+
     const el = preRef.current;
     if (!el) return;
-    // First load: always scroll to bottom
-    if (stickyRef.current) {
+
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    if (isNearBottom) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [log]);
@@ -70,7 +73,6 @@ export default function BackendLog() {
         <Card className="flex-1 bg-black/90 overflow-hidden">
           <pre
             ref={preRef}
-            onScroll={handleScroll}
             className="overflow-y-auto px-4 py-4 text-stone-900 text-sm leading-relaxed"
             style={{ fontFamily: "monospace", maxHeight: "80vh", whiteSpace: "pre-wrap", wordBreak: "break-all" }}
           >

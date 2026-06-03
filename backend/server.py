@@ -59,16 +59,20 @@ LLM_PROVIDERS_PATH = "llm_providers.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
 
 
-def _build_model_checks(provider_keys_filter=None):
-    """Build list of model checks, optionally filtered by provider keys."""
+def _build_model_checks(provider_ids_filter=None):
+    """Build list of model checks, optionally filtered by provider IDs."""
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
 
     model_checks = []
     for provider in providers:
         provider_key = provider["provider_key"]
 
-        # Filter by provider keys if specified
-        if provider_keys_filter and provider_key not in provider_keys_filter:
+        # Skip hidden providers
+        if provider.get("hidden"):
+            continue
+
+        # Filter by provider id (unique per provider, unlike provider_key)
+        if provider_ids_filter and provider["id"] not in provider_ids_filter:
             continue
 
         api_key_env = provider.get("api_key_env", "")
@@ -104,8 +108,25 @@ def _build_model_checks(provider_keys_filter=None):
     return model_checks
 
 
+def _health_check_reason(e):
+    """Return a short human-readable reason for a failed health check."""
+    msg = str(e)
+    if "429" in msg:
+        return "rate limited (429)"
+    if "404" in msg:
+        return "not a chat model (404)"
+    if "400" in msg:
+        return "unavailable on provider's end (400)"
+    if "500" in msg:
+        return "provider server error (500)"
+    if isinstance(e, requests.exceptions.Timeout) or "timed out" in msg.lower() or "timeout" in msg.lower():
+        return "timed out"
+    return f"error ({msg[:60]})"
+
+
 def _check_model(check_data):
-    """Check a single model's health."""
+    """Check a single model's health, with one retry on 429."""
+    import time, random
     from utils.llm_tooling import LLM
 
     model_name = check_data["model_name"]
@@ -114,14 +135,12 @@ def _check_model(check_data):
     api_base = check_data["api_base"]
     timeout = check_data["timeout"]
 
-    try:
+    def build_llm():
         llm_params = {
             'provider': provider_key,
             'system_prompt': "You are a helpful assistant.",
             'timeout': timeout
         }
-
-        # Set provider-specific parameters
         if provider_key == "openai":
             llm_params['openai_model'] = model_name
             llm_params['openai_api_key'] = api_key
@@ -140,24 +159,30 @@ def _check_model(check_data):
             if api_base:
                 llm_params['ollama_api_base'] = api_base
         else:
-            # For custom providers, try to use gwdg-style interface
             llm_params['provider'] = 'gwdg'
             llm_params['gwdg_model'] = model_name
             if api_key:
                 llm_params['gwdg_api_key'] = api_key
             if api_base:
                 llm_params['gwdg_api_base'] = api_base
+        return LLM(**llm_params)
 
-        temp_llm = LLM(**llm_params)
-        temp_llm.complete(prompt="ping")
-        print(f"Health check: {model_name} ({provider_key}) -> online")
-        return (model_name, "online")
-    except (RuntimeError, requests.exceptions.RequestException) as e:
-        print(f"Health check: {model_name} ({provider_key}) -> offline ({type(e).__name__}: {str(e)[:100]})")
-        return (model_name, "offline")
-    except Exception as e:
-        print(f"Health check: {model_name} ({provider_key}) -> offline ({type(e).__name__}: {str(e)[:100]})")
-        return (model_name, "offline")
+    MAX_RETRIES = 6
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            build_llm().complete(prompt="ping")
+            suffix = f" (after {attempt} retries)" if attempt > 0 else ""
+            print(f"Health check: {model_name} ({provider_key}) -> online{suffix}")
+            return (model_name, "online")
+        except Exception as e:
+            if "429" in str(e) and attempt < MAX_RETRIES:
+                # Rate limited — backoff with jitter and try again
+                delay = (attempt + 1) * 2 + random.uniform(0, 3)
+                time.sleep(delay)
+                continue
+            reason = _health_check_reason(e)
+            print(f"Health check: {model_name} ({provider_key}) -> offline ({reason})")
+            return (model_name, "offline")
 
 
 def _run_health_checks(model_checks, max_workers):
@@ -180,8 +205,7 @@ def _run_health_checks(model_checks, max_workers):
 @app.route("/api/health/llm/fast", methods=["GET"])
 def llm_health_fast():
     """Health check for fast providers (OpenAI, GWDG) - high parallelism."""
-    # Fast providers: openai, gwdg
-    model_checks = _build_model_checks(provider_keys_filter=["openai", "gwdg"])
+    model_checks = _build_model_checks(provider_ids_filter=["openai", "gwdg"])
     results = _run_health_checks(model_checks, max_workers=10)
     print(f"Fast health check results: {results}")
     return jsonify(results)
@@ -190,9 +214,54 @@ def llm_health_fast():
 @app.route("/api/health/llm/slow", methods=["GET"])
 def llm_health_slow():
     """Health check for slow/rate-limited providers (Ollama) - limited parallelism."""
-    model_checks = _build_model_checks(provider_keys_filter=["ollama"])
+    model_checks = _build_model_checks(provider_ids_filter=["ollama"])
     results = _run_health_checks(model_checks, max_workers=8)
     print(f"Slow health check results: {results}")
+    return jsonify(results)
+
+
+def _check_openrouter_model(model_id, api_key):
+    """Check OpenRouter model health via its endpoints metadata API (no inference needed)."""
+    try:
+        resp = requests.get(
+            f"https://openrouter.ai/api/v1/models/{model_id}/endpoints",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        endpoints = resp.json().get("data", {}).get("endpoints", [])
+        if not endpoints:
+            return model_id, "offline"
+        best_uptime = max((e.get("uptime_last_5m") or 0) for e in endpoints)
+        status = "online" if best_uptime > 0 else "offline"
+        return model_id, status
+    except Exception as e:
+        return model_id, "offline"
+
+
+@app.route("/api/health/llm/openrouter", methods=["GET"])
+def llm_health_openrouter():
+    """Health check for OpenRouter using uptime metadata — no inference calls needed."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    provider = next((p for p in providers if p["id"] == "openrouter"), None)
+    if not provider:
+        return jsonify({}), 200
+
+    api_key = os.getenv(provider.get("api_key_env", ""), "")
+    models = provider.get("models", [])
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        future_to_model = {
+            executor.submit(_check_openrouter_model, m, api_key): m for m in models
+        }
+        for future in as_completed(future_to_model):
+            model_id, status = future.result()
+            results[model_id] = status
+
+    online = sum(1 for s in results.values() if s == "online")
+    print(f"OpenRouter health check: {online}/{len(models)} online")
     return jsonify(results)
 
 
@@ -1207,7 +1276,15 @@ app.register_blueprint(avatars_bp)
 # LLM Providers Management
 llm_providers_bp = Blueprint("llm_providers", __name__)
 
-NON_CHAT_KEYWORDS = ["embed", "whisper", "tts", "rerank"]
+NON_CHAT_KEYWORDS = [
+    "embed", "whisper", "tts", "rerank",       # common across providers
+    "realtime", "audio", "transcribe",          # OpenAI audio/speech models
+    "image", "sora",                            # OpenAI image/video generation
+    "search",                                   # OpenAI search-specific models
+    "codex",                                    # OpenAI code completion (non-chat API)
+    "moderation",                               # OpenAI content moderation
+    "computer-use",                             # OpenAI computer-use models
+]
 
 def _fetch_provider_models(provider):
     """Fetch available models from a provider's /v1/models endpoint."""
@@ -1440,6 +1517,8 @@ def llm_options():
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
     options = {}
     for p in providers:
+        if p.get("hidden"):
+            continue
         options[p["id"]] = {
             "name": p["name"],
             "models": p["models"],
@@ -1485,6 +1564,8 @@ def _auto_refresh_models():
         try:
             providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
             for provider in providers:
+                if provider.get("hidden"):
+                    continue
                 try:
                     models = _fetch_provider_models(provider)
                     provider["models"] = models

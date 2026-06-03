@@ -152,9 +152,22 @@ export default function MultiAvatarChat() {
         }
       };
 
-      // Run both in parallel - fast results will update UI first
+      const fetchOpenRouter = async () => {
+        try {
+          const resp = await fetch("/api/health/llm/openrouter");
+          if (!resp.ok) throw new Error("Failed to fetch OpenRouter health");
+          const data = await resp.json();
+          setModelHealth(prev => ({ ...prev, ...data }));
+          console.log("OpenRouter LLM health loaded:", data);
+        } catch (err) {
+          console.error("Error loading OpenRouter LLM health:", err);
+        }
+      };
+
+      // All three run in parallel - each updates UI incrementally as it completes
       fetchFast();
       fetchSlow();
+      fetchOpenRouter();
     };
 
     // Fetch health status in background after component mounts

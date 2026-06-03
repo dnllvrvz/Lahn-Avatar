@@ -50,6 +50,7 @@ export default function MultiAvatarChat() {
   const [currentUserTopP, setCurrentUserTopP] = useState(1.0);
   const [modelHealth, setModelHealth] = useState({});
   const [llmOptions, setLlmOptions] = useState({});
+  const [llmOptionsLastRefreshed, setLlmOptionsLastRefreshed] = useState(null);
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
   const [hasLlmDefaults, setHasLlmDefaults] = useState(false);
 
@@ -96,16 +97,17 @@ export default function MultiAvatarChat() {
         const resp = await fetch("/api/llm-options");
         if (!resp.ok) throw new Error("Failed to fetch LLM options");
         const data = await resp.json();
-        setLlmOptions(data);
+        setLlmOptions(data.options);
+        setLlmOptionsLastRefreshed(data.last_refreshed);
         // Set initial model if available
-        const firstProvider = Object.keys(data)[0];
-        if (firstProvider && data[firstProvider].models.length > 0) {
+        const firstProvider = Object.keys(data.options)[0];
+        if (firstProvider && data.options[firstProvider].models.length > 0) {
           setCurrentUserChatProvider(firstProvider);
-          setCurrentUserChatModel(data[firstProvider].models[0]);
+          setCurrentUserChatModel(data.options[firstProvider].models[0]);
           setCurrentUserTextQueryProvider(firstProvider);
-          setCurrentUserTextQueryModel(data[firstProvider].models[0]);
+          setCurrentUserTextQueryModel(data.options[firstProvider].models[0]);
           setCurrentUserSensorProvider(firstProvider);
-          setCurrentUserSensorModel(data[firstProvider].models[0]);
+          setCurrentUserSensorModel(data.options[firstProvider].models[0]);
         }
       } catch (err) {
         console.error("Error loading LLM options:", err);
@@ -510,7 +512,8 @@ export default function MultiAvatarChat() {
       const optionsResp = await fetch("/api/llm-options");
       if (optionsResp.ok) {
         const newOptions = await optionsResp.json();
-        setLlmOptions(newOptions);
+        setLlmOptions(newOptions.options);
+        setLlmOptionsLastRefreshed(newOptions.last_refreshed);
       }
 
       // Refresh health check to get status for new provider's models
@@ -906,6 +909,13 @@ export default function MultiAvatarChat() {
                       {hasLlmDefaults ? 'Saved as Admin default' : 'Not saved'}
                   </span>
               </div>
+
+              {/* Model list freshness */}
+              <p className="text-xs text-stone-400 text-center mt-1">
+                {llmOptionsLastRefreshed
+                  ? <>Model list last refreshed: <span className="text-stone-500">{new Date(llmOptionsLastRefreshed).toLocaleString()}</span></>
+                  : 'Model list: not yet refreshed this session'}
+              </p>
             </div>
           )}
         </div>

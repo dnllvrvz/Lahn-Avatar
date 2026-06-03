@@ -56,6 +56,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GWDG_API_KEY = os.getenv("GWDG_API_KEY")
 GWDG_API_BASE = os.getenv("GWDG_API_BASE")
 LLM_PROVIDERS_PATH = "llm_providers.json"
+_models_last_refreshed = None  # ISO timestamp, set after each model list refresh
 
 
 def _build_model_checks(provider_keys_filter=None):
@@ -89,8 +90,7 @@ def _build_model_checks(provider_keys_filter=None):
             if provider_key == "gwdg" and GWDG_API_BASE:
                 api_base = GWDG_API_BASE
 
-        # Ollama models can be slower, use longer timeout
-        health_check_timeout = 25 if provider_key == "ollama" else 15
+        health_check_timeout = 15
 
         for model_name in provider.get("models", []):
             model_checks.append({
@@ -191,7 +191,7 @@ def llm_health_fast():
 def llm_health_slow():
     """Health check for slow/rate-limited providers (Ollama) - limited parallelism."""
     model_checks = _build_model_checks(provider_keys_filter=["ollama"])
-    results = _run_health_checks(model_checks, max_workers=2)
+    results = _run_health_checks(model_checks, max_workers=8)
     print(f"Slow health check results: {results}")
     return jsonify(results)
 
@@ -1207,6 +1207,31 @@ app.register_blueprint(avatars_bp)
 # LLM Providers Management
 llm_providers_bp = Blueprint("llm_providers", __name__)
 
+NON_CHAT_KEYWORDS = ["embed", "whisper", "tts", "rerank"]
+
+def _fetch_provider_models(provider):
+    """Fetch available models from a provider's /v1/models endpoint."""
+    api_base = provider.get("api_base", "").rstrip("/")
+    api_key_env = provider.get("api_key_env")
+    api_key = os.getenv(api_key_env) if api_key_env else None
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    # Some providers (e.g. OpenAI) already include /v1 in their api_base
+    if api_base.endswith("/v1"):
+        url = f"{api_base}/models"
+    else:
+        url = f"{api_base}/v1/models"
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+
+    data = resp.json()
+    models = [m["id"] for m in data.get("data", [])]
+    # Filter out non-chat models (embeddings, speech, rerankers)
+    return [m for m in models if not any(kw in m.lower() for kw in NON_CHAT_KEYWORDS)]
+
 
 @llm_providers_bp.route("/api/llm-providers", methods=["GET", "POST"])
 def llm_providers_collection():
@@ -1380,11 +1405,37 @@ def llm_provider_detail(provider_id):
     return jsonify(provider), 200
 
 
+@llm_providers_bp.route("/api/llm-providers/<provider_id>/refresh-models", methods=["POST"])
+def refresh_provider_models(provider_id):
+    """
+    POST /api/llm-providers/<provider_id>/refresh-models
+    Fetches the live model list from the provider's /v1/models endpoint
+    and persists it to llm_providers.json.
+    """
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    provider = next((p for p in providers if p["id"] == provider_id), None)
+
+    if not provider:
+        return jsonify({"error": "Provider not found."}), 404
+
+    try:
+        models = _fetch_provider_models(provider)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch models from provider: {str(e)}"}), 502
+
+    global _models_last_refreshed
+    provider["models"] = models
+    json.dump(providers, open(LLM_PROVIDERS_PATH, "w"), indent=2)
+    _models_last_refreshed = datetime.now().isoformat(timespec="seconds")
+    print(f"Refreshed models for provider '{provider_id}': {models}")
+    return jsonify({"models": models}), 200
+
+
 @llm_providers_bp.route("/api/llm-options", methods=["GET"])
 def llm_options():
     """
     GET /api/llm-options -> returns providers in dropdown-friendly format
-    Format: { "provider_id": { "name": "Display Name", "models": [...] }, ... }
+    Format: { "options": { "provider_id": { "name": "...", "models": [...] } }, "last_refreshed": "..." }
     """
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
     options = {}
@@ -1393,7 +1444,7 @@ def llm_options():
             "name": p["name"],
             "models": p["models"],
         }
-    return jsonify(options), 200
+    return jsonify({"options": options, "last_refreshed": _models_last_refreshed}), 200
 
 
 app.register_blueprint(llm_providers_bp)
@@ -1422,6 +1473,33 @@ def backend_log():
         return jsonify({"error": "Log file not found"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _auto_refresh_models():
+    """Background thread: refresh all provider model lists every 24 hours."""
+    import time
+    global _models_last_refreshed
+    REFRESH_INTERVAL = 24 * 60 * 60  # seconds
+
+    while True:
+        try:
+            providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+            for provider in providers:
+                try:
+                    models = _fetch_provider_models(provider)
+                    provider["models"] = models
+                    print(f"[model refresh] {provider['id']}: {len(models)} models")
+                except Exception as e:
+                    print(f"[model refresh] {provider['id']}: failed — {e}")
+            json.dump(providers, open(LLM_PROVIDERS_PATH, "w"), indent=2)
+            _models_last_refreshed = datetime.now().isoformat(timespec="seconds")
+        except Exception as e:
+            print(f"[model refresh] Could not read providers file: {e}")
+
+        time.sleep(REFRESH_INTERVAL)
+
+
+threading.Thread(target=_auto_refresh_models, daemon=True).start()
 
 
 if __name__ == "__main__":

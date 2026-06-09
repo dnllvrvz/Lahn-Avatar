@@ -33,6 +33,9 @@ npm install -D tailwindcss@3.4.17 postcss autoprefixer @tailwindcss/postcss @rad
 echo "💫 Installing animations and routing..."
 npm install framer-motion react-router-dom
 
+echo "🎙️ Installing Agora RTC SDK for voice chat..."
+npm install agora-rtc-sdk-ng
+
 # Only initialize Tailwind config if not present
 if [ ! -f tailwind.config.js ]; then
   echo "🛠️ Initializing Tailwind config..."

@@ -52,3 +52,6 @@ flask_sock
 
 #For Experience Upload
 torchaudio
+
+#For Agora voice chat
+agora-token-builder

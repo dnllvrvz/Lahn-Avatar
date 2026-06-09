@@ -63,6 +63,214 @@ LLM_PROVIDERS_PATH = "llm_providers.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
 
 
+# ─── Shared helpers (used by /api/chat and /api/voice/chat-completions) ───
+
+def create_llm_instance(provider_id, model, system_prompt, temperature=0.7,
+                        top_k=40, top_p=1.0, task_name="unknown", providers=None):
+    """Create an LLM instance for any task. Single source of truth for LLM construction."""
+    if providers is None:
+        providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+
+    provider = next((p for p in providers if p["id"] == provider_id), None)
+    if not provider:
+        raise ValueError(f"Unknown LLM provider: {provider_id}")
+
+    provider_key = provider["provider_key"]
+    api_key_env = provider.get("api_key_env", "")
+    api_base = provider.get("api_base", "")
+
+    api_key = os.getenv(api_key_env, "") if api_key_env else ""
+    if not api_key:
+        if provider_key == "openai":
+            api_key = OPENAI_API_KEY
+        elif provider_key == "gwdg":
+            api_key = GWDG_API_KEY
+        elif provider_key == "ollama":
+            api_key = os.getenv("OLLAMA_API_KEY", "")
+    if not api_base and provider_key == "gwdg" and GWDG_API_BASE:
+        api_base = GWDG_API_BASE
+
+    print(f"Creating LLM for {task_name}: provider={provider_id}, model={model}, "
+          f"temp={temperature}, top_k={top_k}, top_p={top_p}")
+
+    if provider_key == "openai":
+        llm_params = {
+            "provider": "openai", "openai_model": model, "system_prompt": system_prompt,
+            "openai_api_key": api_key, "temperature": temperature, "top_k": top_k, "top_p": top_p,
+        }
+        if api_base:
+            llm_params["openai_api_base"] = api_base
+    elif provider_key == "ollama":
+        llm_params = {
+            "provider": "ollama", "ollama_model": model, "system_prompt": system_prompt,
+            "temperature": temperature, "top_k": top_k, "top_p": top_p,
+        }
+        if api_key:
+            llm_params["ollama_api_key"] = api_key
+        if api_base:
+            llm_params["ollama_api_base"] = api_base
+    else:
+        llm_params = {
+            "provider": "gwdg", "gwdg_model": model, "system_prompt": system_prompt,
+            "temperature": temperature, "top_k": top_k, "top_p": top_p,
+        }
+        if api_key:
+            llm_params["gwdg_api_key"] = api_key
+        if api_base:
+            llm_params["gwdg_api_base"] = api_base
+
+    return LLM(**llm_params)
+
+
+def resolve_llm_defaults(avatar_id, user_params=None):
+    """
+    Resolve LLM parameters via cascade: user request → admin defaults → global defaults.
+    Returns (resolved_dict, sources_dict).
+    """
+    avatars = json.load(open(avatars_path, "r"))
+    avatar_obj = next((a for a in avatars if a["id"] == avatar_id), None)
+    admin_defaults = avatar_obj.get("llmDefaults", {}) if avatar_obj else {}
+
+    chat_defaults = admin_defaults.get("chat", {})
+    text_query_defaults = admin_defaults.get("textQuery", {})
+    sensor_defaults = admin_defaults.get("sensor", {})
+
+    if user_params is None:
+        user_params = {}
+    sources = {}
+
+    def _resolve(req_val, default_val, global_val, key):
+        if req_val is not None:
+            if default_val is not None and default_val == req_val:
+                sources[key] = "Admin defaults"
+            else:
+                sources[key] = "user"
+            return req_val
+        elif default_val is not None:
+            sources[key] = "Admin defaults"
+            return default_val
+        else:
+            sources[key] = "global defaults"
+            return global_val
+
+    resolved = {}
+    resolved["chat_provider"] = _resolve(
+        user_params.get("chatProvider"), chat_defaults.get("provider"), DEFAULT_CHAT_PROVIDER, "chat_provider")
+    resolved["chat_model"] = _resolve(
+        user_params.get("chatModel"), chat_defaults.get("model"), DEFAULT_CHAT_MODEL, "chat_model")
+    resolved["temperature"] = _resolve(
+        user_params.get("temperature"), chat_defaults.get("temperature"), 0.7, "temperature")
+    resolved["top_k"] = _resolve(
+        user_params.get("topK"), chat_defaults.get("top_k"), 40, "top_k")
+    resolved["top_p"] = _resolve(
+        user_params.get("topP"), chat_defaults.get("top_p"), 1.0, "top_p")
+
+    # Text query — falls back to chat provider if unset
+    resolved["text_query_provider"] = _resolve(
+        user_params.get("textQueryProvider"), text_query_defaults.get("provider"), resolved["chat_provider"], "text_query_provider")
+    if sources["text_query_provider"] == "global defaults":
+        sources["text_query_provider"] = "inherited from chat"
+    resolved["text_query_model"] = _resolve(
+        user_params.get("textQueryModel"), text_query_defaults.get("model"), DEFAULT_TEXT_QUERY_MODEL, "text_query_model")
+
+    # Sensor — falls back to chat provider if unset
+    resolved["sensor_provider"] = _resolve(
+        user_params.get("sensorProvider"), sensor_defaults.get("provider"), resolved["chat_provider"], "sensor_provider")
+    if sources["sensor_provider"] == "global defaults":
+        sources["sensor_provider"] = "inherited from chat"
+    resolved["sensor_model"] = _resolve(
+        user_params.get("sensorModel"), sensor_defaults.get("model"), DEFAULT_SENSOR_MODEL, "sensor_model")
+
+    return resolved, sources
+
+
+def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query_llm,
+                       verbose=True):
+    """
+    Inject RAG context into the last message of chat_history (in-place).
+    verbose=True uses the full chat-style wrapper; False uses a compact voice wrapper.
+    Returns True if context was injected.
+    """
+    if not avatar_rag_tools.get(avatar_id):
+        return False
+    if avatar_rag_tools[avatar_id] == [None, None, None, None, ['en', 'de']]:
+        return False
+
+    rag_languages = (avatar_rag_tools[avatar_id][4]
+                     if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de'])
+
+    keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
+        text_query_llm, conversation_for_rag, rag_languages
+    )
+    context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
+
+    if verbose:
+        wrapper = (
+            " <End of User message>.        <<IMPORTANT: If the user explicitly asked you to "
+            "'search the web', 'look up on the internet', or requested information from the web, "
+            "you MUST call web_search(query=\"their search query\") instead of using this RAG data. "
+            "Output ONLY the function call line. Otherwise, the following info is a RAG injection "
+            "to provide you with helpful context. The user did not send this: Here is relevant "
+            "information (Sometimes the text-retrieval has relevant information that the "
+            "vector-retrieval doesn't, or vice versa. Look through each comprehensively, to "
+            "extract the information you need. Even if the Vector-retrieval says there's no "
+            "information available, still scrutinize the Text-retrieval results to fetch relevant "
+            "info (What language was the user's last message in? Make sure to respond in the same "
+            "language.) This instruction is in English, but your response should be in whatever "
+            "language the user messaged you in:>>  "
+        )
+    else:
+        wrapper = " <End of User message>. <<Context from knowledge base: "
+
+    chat_history[-1]["content"] += wrapper + context + (">>" if not verbose else "")
+    return True
+
+
+def handle_sensor_tool_call(response_text, avatar_id, sensor_provider, sensor_model,
+                            llm, chat_history, providers=None):
+    """
+    If response_text contains analyze_sensor_data(), run the sensor tool and re-invoke LLM.
+    Returns (final_response, was_handled).
+    """
+    sensor_config = avatar_sensor_tools.get(avatar_id)
+    if not sensor_config or "analyze_sensor_data" not in response_text:
+        return response_text, False
+
+    q_start = response_text.find('user_query="') + 12
+    q_end = response_text.find('")', q_start)
+    query = response_text[q_start:q_end]
+    if not query:
+        return response_text, False
+
+    sensor_llm = create_llm_instance(
+        sensor_provider, sensor_model, SENSOR_SYSTEM_PROMPT,
+        task_name="sensor", providers=providers,
+    )
+    sensor_tool = SensorsTool(
+        sensor_llm,
+        sensor_url=sensor_config["sensor_url"],
+        sensor_description=sensor_config.get("sensor_description"),
+    )
+    analysis = str(sensor_tool(query))
+    print(f"Sensor analysis: {analysis}")
+
+    results_msg = (
+        "\nHere is the output of analyze_sensor_data(): " + analysis
+        + " Respond to the user accordingly. Do not provide any subjective Lahn-specific "
+        "evaluation of this data, just focus on the quantitative result. And do not return "
+        "a function call. What language was the user's last message in? Make sure to respond "
+        "in the same language."
+    )
+    chat_history.append({"role": "assistant", "content": results_msg})
+    final = llm.complete(chat_history).text
+
+    # Guard against recursive function calls
+    if "analyze_sensor_data" in final:
+        final = analysis
+
+    return final.replace("*", ""), True
+
+
 def _build_model_checks(provider_ids_filter=None):
     """Build list of model checks, optionally filtered by provider IDs."""
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
@@ -388,160 +596,31 @@ def chat():
         f"\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nChat request received for Avatar '{avatar_name}' (id: {avatar_id})"
     )
 
-    # Get request params (may be None if not specified)
-    # Chat params
-    req_chat_provider = data.get("chatProvider") or data.get("llmProvider")  # Backward compat
-    req_chat_model = data.get("chatModel") or data.get("llmModel")  # Backward compat
-    req_temperature = data.get("temperature")
-    req_top_k = data.get("topK")
-    req_top_p = data.get("topP")
+    # Build user request params (with backward compat)
+    user_params = {
+        "chatProvider": data.get("chatProvider") or data.get("llmProvider"),
+        "chatModel": data.get("chatModel") or data.get("llmModel"),
+        "temperature": data.get("temperature"),
+        "topK": data.get("topK"),
+        "topP": data.get("topP"),
+        "textQueryProvider": data.get("textQueryProvider"),
+        "textQueryModel": data.get("textQueryModel"),
+        "sensorProvider": data.get("sensorProvider"),
+        "sensorModel": data.get("sensorModel"),
+    }
+    # Strip None values so resolve_llm_defaults treats them as unset
+    user_params = {k: v for k, v in user_params.items() if v is not None}
 
-    # Text query params (separate provider/model)
-    req_text_query_provider = data.get("textQueryProvider")
-    req_text_query_model = data.get("textQueryModel")
-
-    # Sensor params (separate provider/model)
-    req_sensor_provider = data.get("sensorProvider")
-    req_sensor_model = data.get("sensorModel")
-
-    # Extract admin defaults for each task
-    chat_defaults = admin_defaults.get("chat", {})
-    text_query_defaults = admin_defaults.get("textQuery", {})
-    sensor_defaults = admin_defaults.get("sensor", {})
-
-    # Track sources for logging - compare request params against admin defaults
-    sources = {}
-
-    # === Resolve Chat LLM ===
-    # Resolve Provider
-    if req_chat_provider:
-        user_chat_provider = req_chat_provider
-        if chat_defaults.get("provider") == req_chat_provider:
-            sources["chat_provider"] = "Admin defaults"
-        else:
-            sources["chat_provider"] = "user"
-    elif chat_defaults.get("provider"):
-        user_chat_provider = chat_defaults["provider"]
-        sources["chat_provider"] = "Admin defaults"
-    else:
-        user_chat_provider = DEFAULT_CHAT_PROVIDER
-        sources["chat_provider"] = "global defaults"
-
-    # Resolve Chat Model
-    if req_chat_model:
-        user_chat_model = req_chat_model
-        if chat_defaults.get("model") == req_chat_model:
-            sources["chat_model"] = "Admin defaults"
-        else:
-            sources["chat_model"] = "user"
-    elif chat_defaults.get("model"):
-        user_chat_model = chat_defaults["model"]
-        sources["chat_model"] = "Admin defaults"
-    else:
-        user_chat_model = DEFAULT_CHAT_MODEL
-        sources["chat_model"] = "global defaults"
-
-    # Resolve Temperature
-    if req_temperature is not None:
-        temperature = req_temperature
-        if chat_defaults.get("temperature") == req_temperature:
-            sources["temperature"] = "Admin defaults"
-        else:
-            sources["temperature"] = "user"
-    elif chat_defaults.get("temperature") is not None:
-        temperature = chat_defaults["temperature"]
-        sources["temperature"] = "Admin defaults"
-    else:
-        temperature = 0.7
-        sources["temperature"] = "global defaults"
-
-    # Resolve Top K
-    if req_top_k is not None:
-        top_k = req_top_k
-        if chat_defaults.get("top_k") == req_top_k:
-            sources["top_k"] = "Admin defaults"
-        else:
-            sources["top_k"] = "user"
-    elif chat_defaults.get("top_k") is not None:
-        top_k = chat_defaults["top_k"]
-        sources["top_k"] = "Admin defaults"
-    else:
-        top_k = 40
-        sources["top_k"] = "global defaults"
-
-    # Resolve Top P
-    if req_top_p is not None:
-        top_p = req_top_p
-        if chat_defaults.get("top_p") == req_top_p:
-            sources["top_p"] = "Admin defaults"
-        else:
-            sources["top_p"] = "user"
-    elif chat_defaults.get("top_p") is not None:
-        top_p = chat_defaults["top_p"]
-        sources["top_p"] = "Admin defaults"
-    else:
-        top_p = 1.0
-        sources["top_p"] = "global defaults"
-
-    # === Resolve Text Query LLM ===
-    # Resolve Provider
-    if req_text_query_provider:
-        text_query_provider = req_text_query_provider
-        if text_query_defaults.get("provider") == req_text_query_provider:
-            sources["text_query_provider"] = "Admin defaults"
-        else:
-            sources["text_query_provider"] = "user"
-    elif text_query_defaults.get("provider"):
-        text_query_provider = text_query_defaults["provider"]
-        sources["text_query_provider"] = "Admin defaults"
-    else:
-        # If no separate provider specified, use chat provider as fallback
-        text_query_provider = user_chat_provider
-        sources["text_query_provider"] = "inherited from chat"
-
-    # Resolve Model
-    if req_text_query_model:
-        text_query_model = req_text_query_model
-        if text_query_defaults.get("model") == req_text_query_model:
-            sources["text_query_model"] = "Admin defaults"
-        else:
-            sources["text_query_model"] = "user"
-    elif text_query_defaults.get("model"):
-        text_query_model = text_query_defaults["model"]
-        sources["text_query_model"] = "Admin defaults"
-    else:
-        text_query_model = DEFAULT_TEXT_QUERY_MODEL
-        sources["text_query_model"] = "global defaults"
-
-    # === Resolve Sensor LLM ===
-    # Resolve Provider
-    if req_sensor_provider:
-        sensor_provider = req_sensor_provider
-        if sensor_defaults.get("provider") == req_sensor_provider:
-            sources["sensor_provider"] = "Admin defaults"
-        else:
-            sources["sensor_provider"] = "user"
-    elif sensor_defaults.get("provider"):
-        sensor_provider = sensor_defaults["provider"]
-        sources["sensor_provider"] = "Admin defaults"
-    else:
-        # If no separate provider specified, use chat provider as fallback
-        sensor_provider = user_chat_provider
-        sources["sensor_provider"] = "inherited from chat"
-
-    # Resolve Model
-    if req_sensor_model:
-        sensor_model = req_sensor_model
-        if sensor_defaults.get("model") == req_sensor_model:
-            sources["sensor_model"] = "Admin defaults"
-        else:
-            sources["sensor_model"] = "user"
-    elif sensor_defaults.get("model"):
-        sensor_model = sensor_defaults["model"]
-        sources["sensor_model"] = "Admin defaults"
-    else:
-        sensor_model = DEFAULT_SENSOR_MODEL
-        sources["sensor_model"] = "global defaults"
+    resolved, sources = resolve_llm_defaults(avatar_id, user_params)
+    user_chat_provider = resolved["chat_provider"]
+    user_chat_model = resolved["chat_model"]
+    temperature = resolved["temperature"]
+    top_k = resolved["top_k"]
+    top_p = resolved["top_p"]
+    text_query_provider = resolved["text_query_provider"]
+    text_query_model = resolved["text_query_model"]
+    sensor_provider = resolved["sensor_provider"]
+    sensor_model = resolved["sensor_model"]
 
     # Log resolved parameters with sources
     print("\n=== LLM Parameters (resolved) ===")
@@ -587,111 +666,18 @@ def chat():
 
     chat_history.insert(0, {"role": "system", "content": system_prompt_})
 
-    # === Load provider config early (needed for all LLM instantiations) ===
+    # === Create task-specific LLMs ===
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
 
-    # Helper function to create LLM instance for any task
-    def create_llm_for_task(provider_id, model, system_prompt, temperature=0.7, top_k=40, top_p=1.0, task_name="unknown"):
-        """Create an LLM instance for a specific task."""
-        provider = next((p for p in providers if p["id"] == provider_id), None)
-        if not provider:
-            raise ValueError(f"Unknown LLM provider: {provider_id}")
-
-        provider_key = provider["provider_key"]
-        api_key_env = provider.get("api_key_env", "")
-        api_base = provider.get("api_base", "")
-
-        # Load API key from environment variable
-        api_key = os.getenv(api_key_env, "") if api_key_env else ""
-
-        # Special handling for legacy env vars
-        if not api_key:
-            if provider_key == "openai":
-                api_key = OPENAI_API_KEY
-            elif provider_key == "gwdg":
-                api_key = GWDG_API_KEY
-            elif provider_key == "ollama":
-                api_key = os.getenv("OLLAMA_API_KEY", "")
-
-        if not api_base:
-            if provider_key == "gwdg" and GWDG_API_BASE:
-                api_base = GWDG_API_BASE
-
-        # Log parameters being sent to model
-        print(f"Creating LLM for {task_name}: provider={provider_id}, model={model}, temp={temperature}, top_k={top_k}, top_p={top_p}")
-
-        # Build LLM parameters based on provider type
-        if provider_key == 'openai':
-            llm_params = {
-                'provider': 'openai',
-                'openai_model': model,
-                'system_prompt': system_prompt,
-                'openai_api_key': api_key,
-                'temperature': temperature,
-                'top_k': top_k,
-                'top_p': top_p
-            }
-            if api_base:
-                llm_params['openai_api_base'] = api_base
-            return LLM(**llm_params)
-        elif provider_key == 'ollama':
-            llm_params = {
-                'provider': 'ollama',
-                'ollama_model': model,
-                'system_prompt': system_prompt,
-                'temperature': temperature,
-                'top_k': top_k,
-                'top_p': top_p
-            }
-            if api_key:
-                llm_params['ollama_api_key'] = api_key
-            if api_base:
-                llm_params['ollama_api_base'] = api_base
-            return LLM(**llm_params)
-        else:
-            # For GWDG and custom providers (use GWDG-style interface)
-            llm_params = {
-                'provider': 'gwdg',
-                'gwdg_model': model,
-                'system_prompt': system_prompt,
-                'temperature': temperature,
-                'top_k': top_k,
-                'top_p': top_p
-            }
-            if api_key:
-                llm_params['gwdg_api_key'] = api_key
-            if api_base:
-                llm_params['gwdg_api_base'] = api_base
-            return LLM(**llm_params)
-
-    # === Create task-specific LLMs ===
     # Text query LLM for keyword generation
-    text_query_llm = create_llm_for_task(
-        text_query_provider,
-        text_query_model,
-        TEXT_QUERY_SYSTEM_PROMPT,
-        task_name="text_query"
+    text_query_llm = create_llm_instance(
+        text_query_provider, text_query_model, TEXT_QUERY_SYSTEM_PROMPT,
+        task_name="text_query", providers=providers,
     )
 
     # === RAG Context Injection ===
-    if avatar_rag_tools[avatar_id] != [None, None, None, None, ['en', 'de']]:
+    if inject_rag_context(avatar_id, chat_history, conversation, text_query_llm, verbose=True):
         print("Obtaining information for the LLM...")
-
-        # Get RAG languages for this avatar
-        rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
-
-        # Analyze conversation context and generate keywords for multilingual text-index search
-        keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
-            text_query_llm, conversation, rag_languages
-        )
-
-        context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
-
-        total_context = context
-        chat_history[-1]["content"] += (
-            " <End of User message>.        <<IMPORTANT: If the user explicitly asked you to 'search the web', 'look up on the internet', or requested information from the web, you MUST call web_search(query=\"their search query\") instead of using this RAG data. Output ONLY the function call line. Otherwise, the following info is a RAG injection to provide you with helpful context. The user did not send this: Here is relevant information (Sometimes the text-retrieval has relevant information that the vector-retrieval doesn't, or vice versa. Look through each comprehensively, to extract the information you need. Even if the Vector-retrieval says there's no information available, still scrutinize the Text-retrieval results to fetch relevant info (What language was the user's last message in? Make sure to respond in the same language.) This instruction is in English, but your response should be in whatever language the user messaged you in:>>  "
-            + total_context
-        )
 
     # === Sensor Tool Function Schema ===
     sensor_config = avatar_sensor_tools.get(avatar_id)
@@ -736,7 +722,9 @@ When you call a function, output ONLY the function call line, nothing else.
     # print("\n\nMessages to send: ", messages_to_send)
 
     # === Create chat LLM for main conversation ===
-    llm = create_llm_for_task(user_chat_provider, user_chat_model, system_prompt_, temperature=temperature, top_k=top_k, top_p=top_p, task_name="chat")
+    llm = create_llm_instance(user_chat_provider, user_chat_model, system_prompt_,
+                              temperature=temperature, top_k=top_k, top_p=top_p,
+                              task_name="chat", providers=providers)
 
     # Try completion with fail-fast fallback to OpenAI if using defaults
     using_defaults = sources["chat_provider"] != "user" and sources["chat_model"] != "user"
@@ -748,7 +736,8 @@ When you call a function, output ONLY the function call line, nothing else.
         if using_defaults and user_chat_provider == 'gwdg':
             print(f"GWDG failed with error: {e}")
             print("Retrying with OpenAI fallback...")
-            llm = create_llm_for_task('openai', 'gpt-4o-mini', system_prompt_, task_name="chat_fallback")
+            llm = create_llm_instance('openai', 'gpt-4o-mini', system_prompt_,
+                                      task_name="chat_fallback", providers=providers)
             chat_completion = llm.complete(messages_to_send)
             response = chat_completion.text
         else:
@@ -757,69 +746,25 @@ When you call a function, output ONLY the function call line, nothing else.
 
     print("\nAvatar response: ", response)
 
-    if "analyze_sensor_data" in response:
-        print("Analyzing sensor data...")
-        response = response[response.find('user_query="') + 12 :]
-        query = response[: response.find('")')]
-        print("Query: ", query)
+    sensor_response, sensor_handled = handle_sensor_tool_call(
+        response, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
+    if sensor_handled:
+        print("Avatar response after getting sensor data:", sensor_response)
+        return jsonify({"reply": sensor_response})
 
-        # Get the sensor config for this avatar and create tool on-the-fly
-        sensor_config = avatar_sensor_tools.get(avatar_id)
+    if "analyze_sensor_data" in response and not avatar_sensor_tools.get(avatar_id):
+        # Avatar has no sensor tool configured but model tried to call it
+        print(f"No sensor tool available for avatar {avatar_id}")
+        results = (
+            "\nNote: Sensor data is not available for this avatar. "
+            "Please ask about other aspects of the Lahn or choose a different avatar."
+        )
+        chat_completion_2 = llm.complete(
+            chat_history + [{"role": "assistant", "content": results}],
+        )
+        return jsonify({"reply": chat_completion_2.text.replace("*", "")})
 
-        if sensor_config:
-            # Create sensor LLM and tool on-the-fly
-            sensor_llm = create_llm_for_task(
-                sensor_provider,
-                sensor_model,
-                SENSOR_SYSTEM_PROMPT,
-                task_name="sensor"
-            )
-            sensor_tool = SensorsTool(
-                sensor_llm,
-                sensor_url=sensor_config['sensor_url'],
-                sensor_description=sensor_config.get('sensor_description')
-            )
-
-            analysis = str(sensor_tool(query))
-            print("Analysis: ", analysis)
-            results = (
-                "\nHere is the output of analyze_sensor_data(): "
-                + analysis
-                + " Respond to the user accordingly. Do not provide any subjective Lahn-specific evaluation of this data, just focus on the quantitative result. And do not return a function call. What language was the user's last message in? Make sure to respond in the same language."
-            )
-
-            # if len(results)>0:
-            print(
-                "Passing analysis results to LLM.."
-            )  #: ', chat_history+[{'role':'system', 'content':results}])
-            chat_completion_2 = llm.complete(
-                chat_history + [{"role": "assistant", "content": results}],
-            )
-
-            response_2 = chat_completion_2.text
-            if "analyze_sensor_data" in response_2:
-                print("Duplicate function call for some reason")
-                response_2 = analysis
-
-            response_2 = response_2.replace("*", "")
-
-            print("Avatar response after getting sensor data:", response_2)
-
-            return jsonify({"reply": response_2})
-        else:
-            # Avatar has no sensor tool configured
-            print(f"No sensor tool available for avatar {avatar_id}")
-            results = (
-                "\nNote: Sensor data is not available for this avatar. "
-                "Please ask about other aspects of the Lahn or choose a different avatar."
-            )
-            chat_completion_2 = llm.complete(
-                chat_history + [{"role": "assistant", "content": results}],
-            )
-            response_2 = chat_completion_2.text.replace("*", "")
-            return jsonify({"reply": response_2})
-
-    elif "web_search" in response:
+    if "web_search" in response:
         print("Performing web search...")
         # Extract query: handle both function call and JSON formats
         # Function call: query="...", JSON: "query": "..."
@@ -1745,63 +1690,20 @@ def voice_chat_completions():
 
     print(f"\n[Voice] Chat completion — avatar={avatar_id}, turns={len(conversation_msgs)}")
 
-    # Load admin defaults for this avatar
-    avatars = json.load(open(avatars_path, "r"))
-    avatar_obj = next((a for a in avatars if a["id"] == avatar_id), None)
-    admin_defaults = avatar_obj.get("llmDefaults", {}) if avatar_obj else {}
-    chat_defaults = admin_defaults.get("chat", {})
-    text_query_defaults = admin_defaults.get("textQuery", {})
-    sensor_defaults = admin_defaults.get("sensor", {})
-
-    chat_provider = chat_defaults.get("provider", DEFAULT_CHAT_PROVIDER)
-    chat_model = chat_defaults.get("model", DEFAULT_CHAT_MODEL)
-    temperature = chat_defaults.get("temperature", 0.7)
-    top_k = chat_defaults.get("top_k", 40)
-    top_p = chat_defaults.get("top_p", 1.0)
-    text_query_provider = text_query_defaults.get("provider", chat_provider)
-    text_query_model = text_query_defaults.get("model", DEFAULT_TEXT_QUERY_MODEL)
-    sensor_provider = sensor_defaults.get("provider", chat_provider)
-    sensor_model = sensor_defaults.get("model", DEFAULT_SENSOR_MODEL)
+    # Resolve LLM parameters from admin defaults (no user params for voice)
+    resolved, _ = resolve_llm_defaults(avatar_id)
+    chat_provider = resolved["chat_provider"]
+    chat_model = resolved["chat_model"]
+    temperature = resolved["temperature"]
+    top_k = resolved["top_k"]
+    top_p = resolved["top_p"]
+    text_query_provider = resolved["text_query_provider"]
+    text_query_model = resolved["text_query_model"]
+    sensor_provider = resolved["sensor_provider"]
+    sensor_model = resolved["sensor_model"]
 
     system_prompt = avatar_llms[avatar_id].system_prompt
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
-
-    def _make_llm(provider_id, model, sys_prompt, temp=0.7, tk=40, tp=1.0, task=""):
-        provider = next((p for p in providers if p["id"] == provider_id), None)
-        if not provider:
-            raise ValueError(f"Unknown provider: {provider_id}")
-        provider_key = provider["provider_key"]
-        api_key_env = provider.get("api_key_env", "")
-        api_base = provider.get("api_base", "")
-        api_key = os.getenv(api_key_env, "") if api_key_env else ""
-        if not api_key:
-            if provider_key == "gwdg":
-                api_key = GWDG_API_KEY
-            elif provider_key == "ollama":
-                api_key = os.getenv("OLLAMA_API_KEY", "")
-        if not api_base and provider_key == "gwdg" and GWDG_API_BASE:
-            api_base = GWDG_API_BASE
-        print(f"[Voice] LLM for {task}: {provider_id}/{model}")
-        if provider_key == "openai":
-            p = {"provider": "openai", "openai_model": model, "system_prompt": sys_prompt,
-                 "openai_api_key": api_key, "temperature": temp, "top_k": tk, "top_p": tp}
-            if api_base:
-                p["openai_api_base"] = api_base
-        elif provider_key == "ollama":
-            p = {"provider": "ollama", "ollama_model": model, "system_prompt": sys_prompt,
-                 "temperature": temp, "top_k": tk, "top_p": tp}
-            if api_key:
-                p["ollama_api_key"] = api_key
-            if api_base:
-                p["ollama_api_base"] = api_base
-        else:
-            p = {"provider": "gwdg", "gwdg_model": model, "system_prompt": sys_prompt,
-                 "temperature": temp, "top_k": tk, "top_p": tp}
-            if api_key:
-                p["gwdg_api_key"] = api_key
-            if api_base:
-                p["gwdg_api_base"] = api_base
-        return LLM(**p)
 
     # Build chat history with system prompt
     chat_history = [{"role": "system", "content": system_prompt}]
@@ -1817,59 +1719,35 @@ def voice_chat_completions():
     ]
 
     # RAG context injection
-    if avatar_rag_tools.get(avatar_id) and avatar_rag_tools[avatar_id] != [None, None, None, None, ['en', 'de']]:
-        try:
-            tq_llm = _make_llm(text_query_provider, text_query_model,
-                               TEXT_QUERY_SYSTEM_PROMPT, task="voice_text_query")
-            rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
-            keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
-                tq_llm, conversation_for_rag, rag_languages
-            )
-            context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
-            chat_history[-1]["content"] += (
-                " <End of User message>. <<Context from knowledge base: " + context + ">>"
-            )
+    try:
+        tq_llm = create_llm_instance(text_query_provider, text_query_model,
+                                     TEXT_QUERY_SYSTEM_PROMPT, task_name="voice_text_query",
+                                     providers=providers)
+        if inject_rag_context(avatar_id, chat_history, conversation_for_rag, tq_llm, verbose=False):
             print("[Voice] RAG context injected")
-        except Exception as e:
-            print(f"[Voice] RAG failed (continuing without context): {e}")
+    except Exception as e:
+        print(f"[Voice] RAG failed (continuing without context): {e}")
 
-    # Sensor tool — run inline if the response requests it
-    # (Full multi-turn tool call loops are not supported in this pipeline yet)
+    # Sensor tool prompt injection
     sensor_config = avatar_sensor_tools.get(avatar_id)
     if sensor_config:
-        sensor_description = sensor_config.get("sensor_description", "")
         chat_history[0]["content"] += (
-            f"\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
-            f"say you'll look it up and call: analyze_sensor_data(user_query=\"...\"). "
-            f"Otherwise respond normally."
+            "\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
+            "say you'll look it up and call: analyze_sensor_data(user_query=\"...\"). "
+            "Otherwise respond normally."
         )
 
     # Main LLM call
-    llm = _make_llm(chat_provider, chat_model, system_prompt,
-                    temp=temperature, tk=top_k, tp=top_p, task="voice_chat")
+    llm = create_llm_instance(chat_provider, chat_model, system_prompt,
+                              temperature=temperature, top_k=top_k, top_p=top_p,
+                              task_name="voice_chat", providers=providers)
     response_text = llm.complete(chat_history).text
 
     # Handle inline sensor call if model requested it
-    if sensor_config and "analyze_sensor_data" in response_text:
-        try:
-            q_start = response_text.find('user_query="') + 12
-            q_end = response_text.find('")', q_start)
-            query = response_text[q_start:q_end]
-            sensor_llm = _make_llm(sensor_provider, sensor_model,
-                                   SENSOR_SYSTEM_PROMPT, task="voice_sensor")
-            sensor_tool = SensorsTool(
-                sensor_llm,
-                sensor_url=sensor_config["sensor_url"],
-                sensor_description=sensor_config.get("sensor_description"),
-            )
-            analysis = str(sensor_tool(query))
-            # Re-call LLM with sensor result
-            chat_history.append({"role": "assistant", "content": response_text})
-            chat_history.append({"role": "user", "content": f"Sensor data result: {analysis}"})
-            response_text = llm.complete(chat_history).text
-            print(f"[Voice] Sensor analysis complete")
-        except Exception as e:
-            print(f"[Voice] Sensor call failed: {e}")
+    response_text, sensor_handled = handle_sensor_tool_call(
+        response_text, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
+    if sensor_handled:
+        print("[Voice] Sensor analysis complete")
 
     print(f"[Voice] Response: {response_text[:120]}...")
 

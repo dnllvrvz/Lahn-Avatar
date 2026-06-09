@@ -9,6 +9,7 @@ import VoiceChat from "./VoiceChat.jsx";
 import VoiceChatStream from "./VoiceChatStream.jsx";
 import ExperienceUploadPage from "./ExperienceUploadPage.jsx";
 import BackendLog from "./BackendLog.jsx";
+import AvatarsChatVoice from "./AvatarsChatVoice.jsx";
 // import Mirror from "./Mirror.jsx"
 // import Layout from "./Layout.jsx"; // <-- new layout component with sidebar
 
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")).render(
       <Route path="voice-chat-stream" element={<VoiceChatStream />} />
       <Route path="avatars-chat" element={<MultiAvatarChat />} />
       <Route path="backend-log" element={<BackendLog />} />
+      <Route path="avatars-chat-voice" element={<AvatarsChatVoice />} />
       <Route path="*" element={<LahnAvatarChat />} />
       {/*</Route>*/}
     </Routes>

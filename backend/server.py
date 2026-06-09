@@ -55,6 +55,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GWDG_API_KEY = os.getenv("GWDG_API_KEY")
 GWDG_API_BASE = os.getenv("GWDG_API_BASE")
+AGORA_APP_ID = os.getenv("AGORA_APP_ID", "")
+AGORA_CUSTOMER_ID = os.getenv("AGORA_CUSTOMER_ID", "")
+AGORA_CUSTOMER_SECRET = os.getenv("AGORA_CUSTOMER_SECRET", "")
+BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
 LLM_PROVIDERS_PATH = "llm_providers.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
 
@@ -1581,6 +1585,320 @@ def _auto_refresh_models():
 
 
 threading.Thread(target=_auto_refresh_models, daemon=True).start()
+
+
+# ═══════════════════════════════════════════════════════════
+# Voice Avatar Lab — Agora Conversational AI integration
+# ═══════════════════════════════════════════════════════════
+import uuid as _uuid
+import base64 as _base64
+
+voice_bp = Blueprint("voice", __name__)
+
+AGORA_CONV_AI_BASE = "https://api.agora.io/api/conversational-ai-agent/v2/projects"
+
+
+def _agora_auth_headers():
+    creds = _base64.b64encode(f"{AGORA_CUSTOMER_ID}:{AGORA_CUSTOMER_SECRET}".encode()).decode()
+    return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+
+
+@voice_bp.route("/api/voice/token", methods=["GET"])
+def get_voice_token():
+    """Return Agora App ID and RTC token for the client to join a channel."""
+    channel = request.args.get("channel", "avatar-lab")
+    uid = int(request.args.get("uid", 0))
+    # Token generation requires agora-token-builder + AGORA_APP_CERTIFICATE.
+    # In dev (no certificate), pass token=None — Agora allows this in test mode.
+    # TODO: install agora-token-builder and generate a real token when certificate is set.
+    app_certificate = os.getenv("AGORA_APP_CERTIFICATE", "")
+    token = None
+    if app_certificate:
+        try:
+            import time as _time
+            from agora_token_builder import RtcTokenBuilder
+            from agora_token_builder.RtcTokenBuilder import Role_Publisher
+            token = RtcTokenBuilder.buildTokenWithUid(
+                AGORA_APP_ID, app_certificate,
+                channel, uid, Role_Publisher,
+                int(_time.time()) + 3600
+            )
+        except ImportError:
+            print("[Voice] agora-token-builder not installed — using null token")
+
+    return jsonify({"appId": AGORA_APP_ID, "channel": channel, "uid": uid, "token": token})
+
+
+@voice_bp.route("/api/voice/agent/start", methods=["POST"])
+def start_voice_agent():
+    """Start an Agora Conversational AI agent for the given avatar and channel."""
+    data = request.get_json() or {}
+    avatar_id = str(data.get("avatarId", "0"))
+    channel = data.get("channel", "avatar-lab")
+    user_uid = data.get("userUid", 0)
+
+    if avatar_id not in avatar_llms:
+        return jsonify({"error": f"Unknown avatar: {avatar_id}"}), 404
+
+    # Load admin defaults to determine TTS voice etc.
+    avatars = json.load(open(avatars_path, "r"))
+    avatar = next((a for a in avatars if a["id"] == avatar_id), None)
+
+    # Use avatar system prompt — trim sensor/function instructions (handled separately)
+    system_prompt = avatar_llms[avatar_id].system_prompt
+    cutoff = system_prompt.find("You also have access to sensory data")
+    if cutoff > 0:
+        system_prompt = system_prompt[:cutoff].strip()
+
+    agent_payload = {
+        "name": f"lahn-avatar-{avatar_id}-{channel}",
+        "properties": {
+            "channel": channel,
+            "token": "",          # TODO: generate RTC token for agent UID
+            "agent_rtc_uid": "999",
+            "remote_rtc_uids": [str(user_uid)] if user_uid else ["*"],
+            "idle_timeout": 120,
+            "asr": {
+                "vendor": "deepgram",
+                "language": "en-US",
+                "params": {
+                    "api_key": os.getenv("DEEPGRAM_API_KEY", ""),
+                }
+            },
+            "llm": {
+                "url": f"{BACKEND_PUBLIC_URL}/api/voice/chat-completions?avatar={avatar_id}",
+                "vendor": "custom",
+                "style": "openai",
+                "params": {"model": "avatar"},
+                "system_messages": [{"role": "system", "content": system_prompt}],
+                "greeting_message": "Hello. I am the voice of the Lahn.",
+                "failure_message": "I need a moment. Please hold on.",
+            },
+            "tts": {
+                "vendor": "cartesia",
+                "params": {
+                    "api_key": os.getenv("CARTESIA_API_KEY", ""),
+                    "model_id": "sonic",
+                    "voice_id": "f114a467-c40a-4db8-964d-aaba89cd08fa",
+                }
+            }
+        }
+    }
+
+    print(f"[Voice] Starting agent for avatar {avatar_id} on channel {channel}")
+    resp = requests.post(
+        f"{AGORA_CONV_AI_BASE}/{AGORA_APP_ID}/join",
+        headers=_agora_auth_headers(),
+        json=agent_payload,
+        timeout=15,
+    )
+
+    if resp.status_code >= 400:
+        print(f"[Voice] Agora agent start failed: {resp.status_code} — {resp.text}")
+        try:
+            return jsonify({"error": resp.json()}), resp.status_code
+        except Exception:
+            return jsonify({"error": resp.text}), resp.status_code
+
+    agent_data = resp.json()
+    agent_id = agent_data.get("agent_id") or agent_data.get("id")
+    print(f"[Voice] Agent started: {agent_id}")
+    return jsonify({"agentId": agent_id, "channel": channel})
+
+
+@voice_bp.route("/api/voice/agent/stop", methods=["POST"])
+def stop_voice_agent():
+    """Stop a running Agora Conversational AI agent."""
+    data = request.get_json() or {}
+    agent_id = data.get("agentId")
+    if not agent_id:
+        return jsonify({"error": "agentId required"}), 400
+
+    resp = requests.post(
+        f"{AGORA_CONV_AI_BASE}/{AGORA_APP_ID}/agents/{agent_id}/leave",
+        headers=_agora_auth_headers(),
+        timeout=15,
+    )
+    print(f"[Voice] Agent stopped: {agent_id} (status {resp.status_code})")
+    return jsonify({"status": "stopped"})
+
+
+@voice_bp.route("/api/voice/chat-completions", methods=["POST"])
+def voice_chat_completions():
+    """
+    OpenAI-compatible SSE endpoint called by the Agora Conversational AI agent.
+    Runs the full RAG + sensor + LLM pipeline and streams back the response.
+    """
+    from flask import stream_with_context
+
+    avatar_id = str(request.args.get("avatar", "0"))
+    data = request.get_json() or {}
+    messages = data.get("messages", [])
+
+    if avatar_id not in avatar_llms:
+        return jsonify({"error": f"Unknown avatar: {avatar_id}"}), 404
+
+    # Agora includes the system prompt we configured — skip it, use ours from avatar config
+    conversation_msgs = [m for m in messages if m["role"] != "system"]
+    if not conversation_msgs:
+        return jsonify({"error": "No conversation messages"}), 400
+
+    print(f"\n[Voice] Chat completion — avatar={avatar_id}, turns={len(conversation_msgs)}")
+
+    # Load admin defaults for this avatar
+    avatars = json.load(open(avatars_path, "r"))
+    avatar_obj = next((a for a in avatars if a["id"] == avatar_id), None)
+    admin_defaults = avatar_obj.get("llmDefaults", {}) if avatar_obj else {}
+    chat_defaults = admin_defaults.get("chat", {})
+    text_query_defaults = admin_defaults.get("textQuery", {})
+    sensor_defaults = admin_defaults.get("sensor", {})
+
+    chat_provider = chat_defaults.get("provider", DEFAULT_CHAT_PROVIDER)
+    chat_model = chat_defaults.get("model", DEFAULT_CHAT_MODEL)
+    temperature = chat_defaults.get("temperature", 0.7)
+    top_k = chat_defaults.get("top_k", 40)
+    top_p = chat_defaults.get("top_p", 1.0)
+    text_query_provider = text_query_defaults.get("provider", chat_provider)
+    text_query_model = text_query_defaults.get("model", DEFAULT_TEXT_QUERY_MODEL)
+    sensor_provider = sensor_defaults.get("provider", chat_provider)
+    sensor_model = sensor_defaults.get("model", DEFAULT_SENSOR_MODEL)
+
+    system_prompt = avatar_llms[avatar_id].system_prompt
+    providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+
+    def _make_llm(provider_id, model, sys_prompt, temp=0.7, tk=40, tp=1.0, task=""):
+        provider = next((p for p in providers if p["id"] == provider_id), None)
+        if not provider:
+            raise ValueError(f"Unknown provider: {provider_id}")
+        provider_key = provider["provider_key"]
+        api_key_env = provider.get("api_key_env", "")
+        api_base = provider.get("api_base", "")
+        api_key = os.getenv(api_key_env, "") if api_key_env else ""
+        if not api_key:
+            if provider_key == "gwdg":
+                api_key = GWDG_API_KEY
+            elif provider_key == "ollama":
+                api_key = os.getenv("OLLAMA_API_KEY", "")
+        if not api_base and provider_key == "gwdg" and GWDG_API_BASE:
+            api_base = GWDG_API_BASE
+        print(f"[Voice] LLM for {task}: {provider_id}/{model}")
+        if provider_key == "openai":
+            p = {"provider": "openai", "openai_model": model, "system_prompt": sys_prompt,
+                 "openai_api_key": api_key, "temperature": temp, "top_k": tk, "top_p": tp}
+            if api_base:
+                p["openai_api_base"] = api_base
+        elif provider_key == "ollama":
+            p = {"provider": "ollama", "ollama_model": model, "system_prompt": sys_prompt,
+                 "temperature": temp, "top_k": tk, "top_p": tp}
+            if api_key:
+                p["ollama_api_key"] = api_key
+            if api_base:
+                p["ollama_api_base"] = api_base
+        else:
+            p = {"provider": "gwdg", "gwdg_model": model, "system_prompt": sys_prompt,
+                 "temperature": temp, "top_k": tk, "top_p": tp}
+            if api_key:
+                p["gwdg_api_key"] = api_key
+            if api_base:
+                p["gwdg_api_base"] = api_base
+        return LLM(**p)
+
+    # Build chat history with system prompt
+    chat_history = [{"role": "system", "content": system_prompt}]
+    chat_history += [
+        {"role": "user" if m["role"] == "user" else "assistant", "content": m["content"]}
+        for m in conversation_msgs
+    ]
+
+    # Conversation in the format RAG helpers expect
+    conversation_for_rag = [
+        {"sender": "user" if m["role"] == "user" else "avatar", "text": m["content"]}
+        for m in conversation_msgs
+    ]
+
+    # RAG context injection
+    if avatar_rag_tools.get(avatar_id) and avatar_rag_tools[avatar_id] != [None, None, None, None, ['en', 'de']]:
+        try:
+            tq_llm = _make_llm(text_query_provider, text_query_model,
+                               TEXT_QUERY_SYSTEM_PROMPT, task="voice_text_query")
+            rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
+            keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
+                tq_llm, conversation_for_rag, rag_languages
+            )
+            context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
+            chat_history[-1]["content"] += (
+                " <End of User message>. <<Context from knowledge base: " + context + ">>"
+            )
+            print("[Voice] RAG context injected")
+        except Exception as e:
+            print(f"[Voice] RAG failed (continuing without context): {e}")
+
+    # Sensor tool — run inline if the response requests it
+    # (Full multi-turn tool call loops are not supported in this pipeline yet)
+    sensor_config = avatar_sensor_tools.get(avatar_id)
+    if sensor_config:
+        sensor_description = sensor_config.get("sensor_description", "")
+        chat_history[0]["content"] += (
+            f"\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
+            f"say you'll look it up and call: analyze_sensor_data(user_query=\"...\"). "
+            f"Otherwise respond normally."
+        )
+
+    # Main LLM call
+    llm = _make_llm(chat_provider, chat_model, system_prompt,
+                    temp=temperature, tk=top_k, tp=top_p, task="voice_chat")
+    response_text = llm.complete(chat_history).text
+
+    # Handle inline sensor call if model requested it
+    if sensor_config and "analyze_sensor_data" in response_text:
+        try:
+            q_start = response_text.find('user_query="') + 12
+            q_end = response_text.find('")', q_start)
+            query = response_text[q_start:q_end]
+            sensor_llm = _make_llm(sensor_provider, sensor_model,
+                                   SENSOR_SYSTEM_PROMPT, task="voice_sensor")
+            sensor_tool = SensorsTool(
+                sensor_llm,
+                sensor_url=sensor_config["sensor_url"],
+                sensor_description=sensor_config.get("sensor_description"),
+            )
+            analysis = str(sensor_tool(query))
+            # Re-call LLM with sensor result
+            chat_history.append({"role": "assistant", "content": response_text})
+            chat_history.append({"role": "user", "content": f"Sensor data result: {analysis}"})
+            response_text = llm.complete(chat_history).text
+            print(f"[Voice] Sensor analysis complete")
+        except Exception as e:
+            print(f"[Voice] Sensor call failed: {e}")
+
+    print(f"[Voice] Response: {response_text[:120]}...")
+
+    # Stream back as SSE (single chunk — Agora accepts this)
+    response_id = str(_uuid.uuid4())
+
+    def generate():
+        chunk = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text}, "finish_reason": None}]
+        }
+        yield f"data: {json.dumps(chunk)}\n\n"
+        done_chunk = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        }
+        yield f"data: {json.dumps(done_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+app.register_blueprint(voice_bp)
 
 
 if __name__ == "__main__":

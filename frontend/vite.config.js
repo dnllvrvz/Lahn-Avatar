@@ -5,7 +5,7 @@ import path from 'path'
 export default defineConfig(({ mode }) => {
   const serverConfig = {
     host: true, // allow external connections
-    port: 5174, // or whatever you're using
+    port: 5173, // or whatever you're using
     allowedHosts: [
       'lahn-server.eastus.cloudapp.azure.com',
       'lahn-avatar.uni-giessen.de',

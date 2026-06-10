@@ -1612,12 +1612,29 @@ def start_voice_agent():
     if cutoff > 0:
         system_prompt = system_prompt[:cutoff].strip()
 
+    # Generate RTC token for the agent's own UID so it can join the channel
+    agent_uid = 999
+    agent_token = ""
+    app_certificate = os.getenv("AGORA_APP_CERTIFICATE", "")
+    if app_certificate:
+        try:
+            import time as _time
+            from agora_token_builder import RtcTokenBuilder
+            from agora_token_builder.RtcTokenBuilder import Role_Publisher
+            agent_token = RtcTokenBuilder.buildTokenWithUid(
+                AGORA_APP_ID, app_certificate,
+                channel, agent_uid, Role_Publisher,
+                int(_time.time()) + 3600
+            )
+        except ImportError:
+            print("[Voice] agora-token-builder not installed — agent token will be empty")
+
     agent_payload = {
         "name": f"lahn-avatar-{avatar_id}-{channel}",
         "properties": {
             "channel": channel,
-            "token": "",          # TODO: generate RTC token for agent UID
-            "agent_rtc_uid": "999",
+            "token": agent_token,
+            "agent_rtc_uid": str(agent_uid),
             "remote_rtc_uids": [str(user_uid)] if user_uid else ["*"],
             "idle_timeout": 120,
             "asr": {

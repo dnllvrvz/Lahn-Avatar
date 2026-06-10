@@ -91,7 +91,7 @@ export default function AvatarsChatVoice() {
   }, [agentId, stopVolumePolling]);
 
   const connect = async () => {
-    if (!selectedAvatarId) return;
+    if (!selectedAvatarId || status === "connecting") return;
     setError(null);
     setStatus("connecting");
 
@@ -134,10 +134,17 @@ export default function AvatarsChatVoice() {
         setStatus("listening");
       });
 
-      // 3. Join channel
-      await client.join(appId, channel, token ?? null, uid || null);
+      // Listen for connection state changes
+      client.on("connection-state-change", (curState, revState, reason) => {
+        console.log(`[Agora] Connection: ${revState} → ${curState}, reason: ${reason}`);
+      });
 
-      // 4. Capture and publish microphone
+      client.on("exception", (evt) => {
+        console.error("[Agora] Exception:", evt);
+      });
+
+      // 3. Request mic access FIRST (so we fail fast before joining channel)
+      console.log("[Agora] Requesting microphone access...");
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack({
         encoderConfig: "speech_low_quality",
         AEC: true,
@@ -145,10 +152,20 @@ export default function AvatarsChatVoice() {
         AGC: true,
       });
       micTrackRef.current = micTrack;
+      console.log("[Agora] Mic access granted");
+
+      // 4. Join channel
+      console.log("[Agora] Joining:", { appId, channel, token: token?.slice(0, 20) + "...", uid });
+      const assignedUid = await client.join(appId, channel, token ?? null, uid || null);
+      console.log("[Agora] Joined successfully, assigned uid:", assignedUid);
+
+      // 5. Publish mic track
+      console.log("[Agora] Publishing mic track...");
       await client.publish([micTrack]);
+      console.log("[Agora] Mic track published");
       startVolumePolling(micTrack);
 
-      // 5. Start the AI agent on the backend (which calls Agora's REST API)
+      // 6. Start the AI agent on the backend (which calls Agora's REST API)
       const agentResp = await fetch("/api/voice/agent/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,10 +194,12 @@ export default function AvatarsChatVoice() {
     }
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount — use ref to avoid re-triggering on every render
+  const disconnectRef = useRef(disconnect);
+  disconnectRef.current = disconnect;
   useEffect(() => {
-    return () => { disconnect(true); };
-  }, [disconnect]);
+    return () => { disconnectRef.current(true); };
+  }, []);
 
   const userRippleScale = 1 + userVolume * 2;
   const avatarRippleScale = 1 + avatarVolume * 2;

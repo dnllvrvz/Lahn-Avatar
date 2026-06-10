@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import os
 import re
 import threading
@@ -49,6 +50,13 @@ import requests
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    from werkzeug.exceptions import HTTPException
+    code = e.code if isinstance(e, HTTPException) else 500
+    return jsonify({"error": str(e), "traceback": traceback.format_exc()}), code
+
 UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -61,6 +69,19 @@ AGORA_CUSTOMER_SECRET = os.getenv("AGORA_CUSTOMER_SECRET", "")
 BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
 LLM_PROVIDERS_PATH = "llm_providers.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
+_model_health_cache = {}  # model_name -> "online"|"offline", updated by health check endpoints
+
+if not os.path.exists(LLM_PROVIDERS_PATH):
+    json.dump([
+        {"id": "openai", "name": "OpenAI", "hidden": True, "provider_key": "openai",
+         "api_base": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY", "models": []},
+        {"id": "gwdg", "name": "JLU", "provider_key": "gwdg",
+         "api_base": "https://api.hrz.uni-giessen.de", "api_key_env": "GWDG_API_KEY", "models": []},
+        {"id": "openrouter", "name": "OpenRouter", "provider_key": "openai",
+         "api_base": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_API_KEY", "models": []},
+        {"id": "ollama", "name": "Ollama Cloud", "provider_key": "ollama",
+         "api_base": "https://ollama.com", "api_key_env": "OLLAMA_API_KEY", "models": []},
+    ], open(LLM_PROVIDERS_PATH, "w"), indent=2)
 
 
 # ─── Shared helpers (used by /api/chat and /api/voice/chat-completions) ───
@@ -417,8 +438,10 @@ def _run_health_checks(model_checks, max_workers):
 @app.route("/api/health/llm/fast", methods=["GET"])
 def llm_health_fast():
     """Health check for fast providers (OpenAI, GWDG) - high parallelism."""
+    global _model_health_cache
     model_checks = _build_model_checks(provider_ids_filter=["openai", "gwdg"])
     results = _run_health_checks(model_checks, max_workers=10)
+    _model_health_cache.update(results)
     print(f"Fast health check results: {results}")
     return jsonify(results)
 
@@ -426,8 +449,10 @@ def llm_health_fast():
 @app.route("/api/health/llm/slow", methods=["GET"])
 def llm_health_slow():
     """Health check for slow/rate-limited providers (Ollama) - limited parallelism."""
+    global _model_health_cache
     model_checks = _build_model_checks(provider_ids_filter=["ollama"])
     results = _run_health_checks(model_checks, max_workers=8)
+    _model_health_cache.update(results)
     print(f"Slow health check results: {results}")
     return jsonify(results)
 
@@ -472,6 +497,8 @@ def llm_health_openrouter():
             model_id, status = future.result()
             results[model_id] = status
 
+    global _model_health_cache
+    _model_health_cache.update(results)
     online = sum(1 for s in results.values() if s == "online")
     print(f"OpenRouter health check: {online}/{len(models)} online")
     return jsonify(results)
@@ -622,6 +649,11 @@ def chat():
     sensor_provider = resolved["sensor_provider"]
     sensor_model = resolved["sensor_model"]
 
+    # Reject requests for models known to be offline
+    for role, model in [("chat", user_chat_model), ("text query", text_query_model), ("sensor", sensor_model)]:
+        if _model_health_cache.get(model) == "offline":
+            return jsonify({"error": f"The {role} model '{model}' is currently offline. Please select a different model in Avatar Lab."}), 503
+
     # Log resolved parameters with sources
     print("\n=== LLM Parameters (resolved) ===")
     print(f"Chat: provider={user_chat_provider} (from: {sources['chat_provider']}), model={user_chat_model} (from: {sources['chat_model']})")
@@ -726,23 +758,8 @@ When you call a function, output ONLY the function call line, nothing else.
                               temperature=temperature, top_k=top_k, top_p=top_p,
                               task_name="chat", providers=providers)
 
-    # Try completion with fail-fast fallback to OpenAI if using defaults
-    using_defaults = sources["chat_provider"] != "user" and sources["chat_model"] != "user"
-    try:
-        chat_completion = llm.complete(messages_to_send)
-        response = chat_completion.text
-    except (RuntimeError, requests.exceptions.RequestException) as e:
-        # If we're using defaults and GWDG fails, retry with OpenAI
-        if using_defaults and user_chat_provider == 'gwdg':
-            print(f"GWDG failed with error: {e}")
-            print("Retrying with OpenAI fallback...")
-            llm = create_llm_instance('openai', 'gpt-4o-mini', system_prompt_,
-                                      task_name="chat_fallback", providers=providers)
-            chat_completion = llm.complete(messages_to_send)
-            response = chat_completion.text
-        else:
-            # Re-raise if user explicitly selected this provider
-            raise
+    chat_completion = llm.complete(messages_to_send)
+    response = chat_completion.text
 
     print("\nAvatar response: ", response)
 

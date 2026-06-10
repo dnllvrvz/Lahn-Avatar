@@ -272,19 +272,36 @@ export default function AvatarsChatVoice() {
         <p className="text-sm text-red-600 max-w-sm text-center font-poetic">{error}</p>
       )}
 
-      {/* Setup checklist — shown only when not connected, helps during dev */}
+      {/* Device integration guide */}
       {!isConnected && (
         <details className="mt-4 max-w-sm w-full">
           <summary className="text-xs text-stone-400 cursor-pointer font-poetic">
-            Backend setup requirements
+            Connecting a hardware device (Raspberry Pi / ReSpeaker)
           </summary>
-          <ul className="mt-2 text-xs text-stone-500 space-y-1 font-mono list-disc list-inside">
-            <li>AGORA_APP_ID + AGORA_APP_CERTIFICATE</li>
-            <li>AGORA_CUSTOMER_ID + AGORA_CUSTOMER_SECRET</li>
-            <li>DEEPGRAM_API_KEY (ASR)</li>
-            <li>CARTESIA_API_KEY (TTS)</li>
-            <li>BACKEND_PUBLIC_URL (reachable by Agora)</li>
-          </ul>
+          <div className="mt-2 text-xs text-stone-500 space-y-3 font-mono">
+            <p className="font-poetic text-stone-600">Your device joins a shared voice channel. The avatar listens, thinks, and speaks back — your device only needs to handle audio input and output.</p>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 1 — Request a channel token</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`GET /api/voice/token?channel=my-device&uid=1
+← { appId, channel, uid, token }`}</pre>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 2 — Start the avatar</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/start
+{ "avatarId": "0", "channel": "my-device", "userUid": 1 }
+← { agentId, channel }`}</pre>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 3 — Join the channel and talk</p>
+            <p>Install Agora's Python SDK and join the channel using the credentials from Step 1. Capture mic audio and publish it; subscribe to receive the avatar's spoken responses.</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`pip install agora-python-server-sdk
+
+# join with appId + token from step 1
+# publish mic audio → avatar hears you
+# subscribe to audio → play avatar's response`}</pre>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 4 — End the session</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/stop
+{ "agentId": "<id from step 2>" }`}</pre>
+          </div>
         </details>
       )}
     </div>

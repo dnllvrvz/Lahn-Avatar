@@ -53,6 +53,7 @@ export default function MultiAvatarChat() {
   const [llmOptionsLastRefreshed, setLlmOptionsLastRefreshed] = useState(null);
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
   const [hasLlmDefaults, setHasLlmDefaults] = useState(false);
+  const [adminDefaultModels, setAdminDefaultModels] = useState({ chat: null, textQuery: null, sensor: null });
 
   // --- backend log viewer state ---
   const [logExpanded, setLogExpanded] = useState(false);
@@ -213,14 +214,23 @@ export default function MultiAvatarChat() {
     if (!selectedAvatarId || !llmOptions || Object.keys(llmOptions).length === 0) return;
 
     const selectedAvatar = avatars.find(a => a.id === selectedAvatarId);
+    const firstProvider = Object.keys(llmOptions)[0];
+    const resolveProvider = (p) => (p && llmOptions[p]) ? p : firstProvider;
+    const resolveModel = (p, m) => {
+      const provider = resolveProvider(p);
+      const models = llmOptions[provider]?.models || [];
+      return (m && models.includes(m)) ? m : (models[0] || '');
+    };
+
     if (selectedAvatar?.llmDefaults) {
       const defaults = selectedAvatar.llmDefaults;
       console.log("Loading Admin defaults for avatar:", defaults);
 
       // Load chat defaults
       if (defaults.chat) {
-        if (defaults.chat.provider) setCurrentUserChatProvider(defaults.chat.provider);
-        if (defaults.chat.model) setCurrentUserChatModel(defaults.chat.model);
+        const p = resolveProvider(defaults.chat.provider);
+        setCurrentUserChatProvider(p);
+        setCurrentUserChatModel(resolveModel(defaults.chat.provider, defaults.chat.model));
         if (defaults.chat.temperature) setCurrentUserTemperature(defaults.chat.temperature);
         if (defaults.chat.top_k) setCurrentUserTopK(defaults.chat.top_k);
         if (defaults.chat.top_p) setCurrentUserTopP(defaults.chat.top_p);
@@ -228,18 +238,24 @@ export default function MultiAvatarChat() {
 
       // Load text query defaults
       if (defaults.textQuery) {
-        if (defaults.textQuery.provider) setCurrentUserTextQueryProvider(defaults.textQuery.provider);
-        if (defaults.textQuery.model) setCurrentUserTextQueryModel(defaults.textQuery.model);
+        setCurrentUserTextQueryProvider(resolveProvider(defaults.textQuery.provider));
+        setCurrentUserTextQueryModel(resolveModel(defaults.textQuery.provider, defaults.textQuery.model));
       }
 
       // Load sensor defaults
       if (defaults.sensor) {
-        if (defaults.sensor.provider) setCurrentUserSensorProvider(defaults.sensor.provider);
-        if (defaults.sensor.model) setCurrentUserSensorModel(defaults.sensor.model);
+        setCurrentUserSensorProvider(resolveProvider(defaults.sensor.provider));
+        setCurrentUserSensorModel(resolveModel(defaults.sensor.provider, defaults.sensor.model));
       }
 
+      setAdminDefaultModels({
+        chat: defaults.chat?.model || null,
+        textQuery: defaults.textQuery?.model || null,
+        sensor: defaults.sensor?.model || null,
+      });
       setHasLlmDefaults(true);
     } else {
+      setAdminDefaultModels({ chat: null, textQuery: null, sensor: null });
       // No Admin defaults saved, use global defaults
       const firstProvider = Object.keys(llmOptions)[0];
       if (firstProvider && llmOptions[firstProvider].models.length > 0) {
@@ -588,10 +604,15 @@ export default function MultiAvatarChat() {
           }),
         }
       );
-      const { reply } = await resp.json();
-      setMessages(prev => [...prev, { sender: "avatar", text: reply }]);
+      const data = await resp.json();
+      if (data.error) {
+        setMessages(prev => [...prev, { sender: "avatar", text: `⚠️ ${data.error}` }]);
+      } else {
+        setMessages(prev => [...prev, { sender: "avatar", text: data.reply }]);
+      }
     } catch (error) {
       console.error(error);
+      setMessages(prev => [...prev, { sender: "avatar", text: "⚠️ An unexpected error occurred. Please try again." }]);
     } finally {
       setIsThinking(false);
     }
@@ -667,7 +688,13 @@ export default function MultiAvatarChat() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const chatDisabled = !selectedAvatar;
+  const offlineBlockers = [
+    { role: 'chat', model: currentUserChatModel },
+    { role: 'text query', model: currentUserTextQueryModel },
+    { role: 'sensor', model: currentUserSensorModel },
+  ].filter(({ model }) => modelHealth[model] === 'offline');
+
+  const chatDisabled = !selectedAvatar || offlineBlockers.length > 0;
 
   return (
     <div
@@ -775,14 +802,14 @@ export default function MultiAvatarChat() {
                           value={currentUserChatModel}
                           onChange={e => setCurrentUserChatModel(e.target.value)}
                       >
-                          {llmOptions[currentUserChatProvider]?.models.map(model => {
+                          {llmOptions[currentUserChatProvider]?.models.filter(model =>
+                              modelHealth[model] !== 'offline' || model === adminDefaultModels.chat
+                          ).map(model => {
                               const status = modelHealth[model];
-                              let indicator = '⚪';
-                              if (status === 'online') indicator = '🟢';
-                              else if (status === 'offline') indicator = '🔴';
+                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model} {status === 'offline' ? '(Offline)' : ''}
+                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
                                   </option>
                               );
                           })}
@@ -853,14 +880,14 @@ export default function MultiAvatarChat() {
                           value={currentUserTextQueryModel}
                           onChange={e => setCurrentUserTextQueryModel(e.target.value)}
                       >
-                          {llmOptions[currentUserTextQueryProvider]?.models.map(model => {
+                          {llmOptions[currentUserTextQueryProvider]?.models.filter(model =>
+                              modelHealth[model] !== 'offline' || model === adminDefaultModels.textQuery
+                          ).map(model => {
                               const status = modelHealth[model];
-                              let indicator = '⚪';
-                              if (status === 'online') indicator = '🟢';
-                              else if (status === 'offline') indicator = '🔴';
+                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model}
+                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
                                   </option>
                               );
                           })}
@@ -889,14 +916,14 @@ export default function MultiAvatarChat() {
                           value={currentUserSensorModel}
                           onChange={e => setCurrentUserSensorModel(e.target.value)}
                       >
-                          {llmOptions[currentUserSensorProvider]?.models.map(model => {
+                          {llmOptions[currentUserSensorProvider]?.models.filter(model =>
+                              modelHealth[model] !== 'offline' || model === adminDefaultModels.sensor
+                          ).map(model => {
                               const status = modelHealth[model];
-                              let indicator = '⚪';
-                              if (status === 'online') indicator = '🟢';
-                              else if (status === 'offline') indicator = '🔴';
+                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
                               return (
                                   <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model}
+                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
                                   </option>
                               );
                           })}
@@ -1065,6 +1092,13 @@ export default function MultiAvatarChat() {
                 <div ref={chatEndRef} />
               </div>
 
+              {/* offline model warning */}
+              {offlineBlockers.length > 0 && (
+                <div className="px-3 md:px-6 py-2 bg-red-50 border-t border-red-200 text-red-700 text-xs font-poetic">
+                  ⚠️ {offlineBlockers.map(b => `${b.role} model "${b.model}"`).join(' and ')} {offlineBlockers.length > 1 ? 'are' : 'is'} offline. Open LLM Config to select an active model.
+                </div>
+              )}
+
               {/* input bar */}
               <div className="flex items-center gap-2 px-3 md:px-6 py-3 md:py-4 border-t bg-stone-50">
                 <motion.div
@@ -1076,11 +1110,11 @@ export default function MultiAvatarChat() {
                   <Input
                     className="w-full rounded-full font-poetic bg-white text-stone-900"
                     style={{ color: '#1c1917' }}
-                    placeholder={chatDisabled ? "Select or create an avatar to begin..." : "Speak with the avatar..."}
+                    placeholder={!selectedAvatar ? "Select or create an avatar to begin..." : "Speak with the avatar..."}
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => !chatDisabled && e.key === 'Enter' && handleSubmit()}
-                    disabled={chatDisabled}
+                    disabled={!selectedAvatar}
                   />
                 </motion.div>
                 <motion.div

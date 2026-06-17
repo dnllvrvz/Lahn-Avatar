@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
     allowedHosts: [
       'lahn-server.eastus.cloudapp.azure.com',
       'lahn-avatar.uni-giessen.de',
+      'avatars.sympoiesis.xyz',
     ],
   };
 

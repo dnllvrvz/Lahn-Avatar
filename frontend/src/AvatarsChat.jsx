@@ -216,10 +216,12 @@ export default function MultiAvatarChat() {
     const selectedAvatar = avatars.find(a => a.id === selectedAvatarId);
     const firstProvider = Object.keys(llmOptions)[0];
     const resolveProvider = (p) => (p && llmOptions[p]) ? p : firstProvider;
+
+    // Returns { provider, model }
     const resolveModel = (p, m) => {
       const provider = resolveProvider(p);
       const models = llmOptions[provider]?.models || [];
-      return (m && models.includes(m)) ? m : (models[0] || '');
+      return { provider, model: (m && models.includes(m)) ? m : (models[0] || '') };
     };
 
     if (selectedAvatar?.llmDefaults) {
@@ -228,9 +230,9 @@ export default function MultiAvatarChat() {
 
       // Load chat defaults
       if (defaults.chat) {
-        const p = resolveProvider(defaults.chat.provider);
-        setCurrentUserChatProvider(p);
-        setCurrentUserChatModel(resolveModel(defaults.chat.provider, defaults.chat.model));
+        const { provider: cp, model: cm } = resolveModel(defaults.chat.provider, defaults.chat.model);
+        setCurrentUserChatProvider(cp);
+        setCurrentUserChatModel(cm);
         if (defaults.chat.temperature) setCurrentUserTemperature(defaults.chat.temperature);
         if (defaults.chat.top_k) setCurrentUserTopK(defaults.chat.top_k);
         if (defaults.chat.top_p) setCurrentUserTopP(defaults.chat.top_p);
@@ -238,14 +240,16 @@ export default function MultiAvatarChat() {
 
       // Load text query defaults
       if (defaults.textQuery) {
-        setCurrentUserTextQueryProvider(resolveProvider(defaults.textQuery.provider));
-        setCurrentUserTextQueryModel(resolveModel(defaults.textQuery.provider, defaults.textQuery.model));
+        const { provider: tp, model: tm } = resolveModel(defaults.textQuery.provider, defaults.textQuery.model);
+        setCurrentUserTextQueryProvider(tp);
+        setCurrentUserTextQueryModel(tm);
       }
 
       // Load sensor defaults
       if (defaults.sensor) {
-        setCurrentUserSensorProvider(resolveProvider(defaults.sensor.provider));
-        setCurrentUserSensorModel(resolveModel(defaults.sensor.provider, defaults.sensor.model));
+        const { provider: sp, model: sm } = resolveModel(defaults.sensor.provider, defaults.sensor.model);
+        setCurrentUserSensorProvider(sp);
+        setCurrentUserSensorModel(sm);
       }
 
       setAdminDefaultModels({

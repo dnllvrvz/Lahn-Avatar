@@ -33,3 +33,4 @@ backend/constraints.txt
 
 
 .claude/
+backend/llm_health_cache.json

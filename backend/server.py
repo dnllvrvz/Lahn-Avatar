@@ -33,6 +33,7 @@ from utils.processing_pipelines import OpenAIRealtimeClient
 from utils.utils import (
     RAG,
     build_or_load_index,
+    extract_keywords_multilingual,
     fetch_system_prompt_from_gdoc,
     fetch_text_index_query,
     generate_context_aware_keywords_for_multilingual_text_index_search,
@@ -68,8 +69,75 @@ AGORA_CUSTOMER_ID = os.getenv("AGORA_CUSTOMER_ID", "")
 AGORA_CUSTOMER_SECRET = os.getenv("AGORA_CUSTOMER_SECRET", "")
 BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
 LLM_PROVIDERS_PATH = "llm_providers.json"
+HEALTH_CACHE_PATH = "llm_health_cache.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
-_model_health_cache = {}  # model_name -> "online"|"offline", updated by health check endpoints
+_model_health_cache = json.load(open(HEALTH_CACHE_PATH)) if os.path.exists(HEALTH_CACHE_PATH) else {}
+
+_sensor_cache = {}  # avatar_id -> {"ts": float, "summary": str}
+SENSOR_CACHE_TTL = 120  # seconds
+
+def _fetch_sensor_summary(avatar_id):
+    """Fetch latest sensor readings and return a formatted text summary. Cached per avatar."""
+    import time
+    cached = _sensor_cache.get(avatar_id)
+    if cached and (time.time() - cached["ts"]) < SENSOR_CACHE_TTL:
+        return cached["summary"]
+
+    sensor_config = avatar_sensor_tools.get(avatar_id)
+    if not sensor_config:
+        return None
+    sensor_url = sensor_config.get("sensor_url", "")
+    if not sensor_url:
+        return None
+
+    # Fetch last 10 readings
+    fetch_url = sensor_url if "results=" in sensor_url else sensor_url + ("&" if "?" in sensor_url else "?") + "results=10"
+    try:
+        resp = requests.get(fetch_url, headers={"Accept": "application/json", "User-Agent": "Lahn-Avatar/1.0"}, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[sensor cache] fetch failed for avatar {avatar_id}: {e}")
+        return None
+
+    # Parse field names and most recent non-null values
+    lines = []
+    if "channel" in data and "feeds" in data:
+        channel = data["channel"]
+        field_map = {f"field{i}": channel[f"field{i}"] for i in range(1, 9) if f"field{i}" in channel}
+        feeds = data["feeds"]
+        # Most recent reading with at least one non-null value
+        latest = next((f for f in reversed(feeds) if any(f.get(k) is not None for k in field_map)), None)
+        if latest:
+            lines.append(f"Latest reading ({latest.get('created_at', 'unknown time')}):")
+            for field_key, field_name in field_map.items():
+                val = latest.get(field_key)
+                if val is not None:
+                    lines.append(f"  {field_name}: {val}")
+    elif "feeds" in data:
+        feeds = data["feeds"]
+        latest = feeds[-1] if feeds else None
+        if latest:
+            ts = latest.get("timestamp") or latest.get("created_at", "unknown time")
+            lines.append(f"Latest reading ({ts}):")
+            for k, v in latest.items():
+                if k not in ("timestamp", "created_at", "entry_id") and v is not None:
+                    lines.append(f"  {k}: {v}")
+
+    if not lines:
+        return None
+
+    summary = "\n".join(lines)
+    _sensor_cache[avatar_id] = {"ts": time.time(), "summary": summary}
+    print(f"[sensor cache] refreshed for avatar {avatar_id}")
+    return summary
+
+
+def _persist_health_cache():
+    try:
+        json.dump(_model_health_cache, open(HEALTH_CACHE_PATH, "w"))
+    except Exception as e:
+        print(f"[health cache] failed to persist: {e}")
 
 if not os.path.exists(LLM_PROVIDERS_PATH):
     json.dump([
@@ -85,6 +153,71 @@ if not os.path.exists(LLM_PROVIDERS_PATH):
 
 
 # ─── Shared helpers (used by /api/chat and /api/voice/chat-completions) ───
+
+MODEL_FAMILIES = ['gemma', 'qwen', 'llama', 'mistral', 'deepseek', 'codestral',
+                  'phi', 'falcon', 'mixtral', 'command', 'claude', 'gpt',
+                  'devstral', 'medgemma', 'glm', 'kimi', 'minimax']
+
+def _extract_family(model_name):
+    if not model_name:
+        return None
+    lower = model_name.lower()
+    return next((f for f in MODEL_FAMILIES if f in lower), None)
+
+def _is_free_tier(model_name):
+    return model_name.endswith(':free') or ':free:' in model_name
+
+def fallback_model(provider_id, model_name):
+    """
+    When an admin-default model is offline, find the best available substitute.
+    Tier 1: same provider, same family, online.
+    Tier 2: any provider, same family, online.
+    Tier 3: any online model on any provider.
+    Returns (provider_id, model_name) — unchanged if the model is healthy or cache is empty.
+    """
+    if not _model_health_cache:
+        return provider_id, model_name
+    if _model_health_cache.get(model_name) != 'offline':
+        return provider_id, model_name
+
+    try:
+        providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
+    except Exception:
+        return provider_id, model_name
+
+    visible = [p for p in providers if not p.get('hidden')]
+    family = _extract_family(model_name)
+
+    def _candidate(m):
+        return _model_health_cache.get(m) == 'online' and not _is_free_tier(m)
+
+    # Tier 1: same provider, same family
+    same_provider = next((p for p in visible if p['id'] == provider_id), None)
+    if same_provider and family:
+        t1 = next((m for m in same_provider.get('models', [])
+                   if _extract_family(m) == family and _candidate(m)), None)
+        if t1:
+            print(f"[fallback] {model_name} offline → tier-1 fallback: {t1} ({provider_id})")
+            return provider_id, t1
+
+    # Tier 2: any provider, same family
+    if family:
+        for p in visible:
+            t2 = next((m for m in p.get('models', [])
+                       if _extract_family(m) == family and _candidate(m)), None)
+            if t2:
+                print(f"[fallback] {model_name} offline → tier-2 fallback: {t2} ({p['id']})")
+                return p['id'], t2
+
+    # Tier 3: any online non-free model
+    for p in visible:
+        t3 = next((m for m in p.get('models', []) if _candidate(m)), None)
+        if t3:
+            print(f"[fallback] {model_name} offline → tier-3 fallback: {t3} ({p['id']})")
+            return p['id'], t3
+
+    print(f"[fallback] {model_name} offline — no online fallback found, proceeding anyway")
+    return provider_id, model_name
 
 def create_llm_instance(provider_id, model, system_prompt, temperature=0.7,
                         top_k=40, top_p=1.0, task_name="unknown", providers=None):
@@ -442,6 +575,7 @@ def llm_health_fast():
     model_checks = _build_model_checks(provider_ids_filter=["openai", "gwdg"])
     results = _run_health_checks(model_checks, max_workers=10)
     _model_health_cache.update(results)
+    _persist_health_cache()
     print(f"Fast health check results: {results}")
     return jsonify(results)
 
@@ -453,6 +587,7 @@ def llm_health_slow():
     model_checks = _build_model_checks(provider_ids_filter=["ollama"])
     results = _run_health_checks(model_checks, max_workers=8)
     _model_health_cache.update(results)
+    _persist_health_cache()
     print(f"Slow health check results: {results}")
     return jsonify(results)
 
@@ -499,6 +634,7 @@ def llm_health_openrouter():
 
     global _model_health_cache
     _model_health_cache.update(results)
+    _persist_health_cache()
     online = sum(1 for s in results.values() if s == "online")
     print(f"OpenRouter health check: {online}/{len(models)} online")
     return jsonify(results)
@@ -750,6 +886,14 @@ When you call a function, output ONLY the function call line, nothing else.
 """
         chat_history[0]["content"] += function_schema
 
+    # === Always-fetch sensor snapshot (cached, 2-min TTL) ===
+    # Gives LLM current readings for simple queries without tool invocation.
+    # analyze_sensor_data() tool still handles complex analytical queries.
+    if sensor_config:
+        sensor_summary = _fetch_sensor_summary(avatar_id)
+        if sensor_summary:
+            chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
+
     messages_to_send = chat_history
     # print("\n\nMessages to send: ", messages_to_send)
 
@@ -783,9 +927,10 @@ When you call a function, output ONLY the function call line, nothing else.
 
     if "web_search" in response:
         print("Performing web search...")
-        # Extract query: handle both function call and JSON formats
-        # Function call: query="...", JSON: "query": "..."
-        match = re.search(r'query\s*[:=]\s*["\']([^"\']+)["\']', response)
+        # Extract query: keyword arg, JSON, or positional arg formats
+        # web_search(query="..."), "query": "...", web_search("...")
+        match = (re.search(r'query\s*[:=]\s*["\']([^"\']+)["\']', response) or
+                 re.search(r'web_search\s*\(\s*["\']([^"\']+)["\']', response))
         query = match.group(1) if match else ""
 
         print(f"Web search query: {query}")
@@ -1652,12 +1797,14 @@ def start_voice_agent():
                 "system_messages": [{"role": "system", "content": system_prompt}],
                 "greeting_message": "Hello. I am the voice of the Lahn.",
                 "failure_message": "I need a moment. Please hold on.",
+                "max_history": 10,
+                "timeout_ms": 30000,
             },
             "tts": {
                 "vendor": "cartesia",
                 "params": {
                     "api_key": os.getenv("CARTESIA_API_KEY", ""),
-                    "model_id": "sonic",
+                    "model_id": "sonic-2",
                     "voice_id": "f114a467-c40a-4db8-964d-aaba89cd08fa",
                 }
             }
@@ -1726,15 +1873,14 @@ def voice_chat_completions():
 
     # Resolve LLM parameters from admin defaults (no user params for voice)
     resolved, _ = resolve_llm_defaults(avatar_id)
-    chat_provider = resolved["chat_provider"]
-    chat_model = resolved["chat_model"]
+    chat_provider, chat_model = fallback_model(resolved["chat_provider"], resolved["chat_model"])
+    text_query_provider_raw, text_query_model_raw = fallback_model(resolved["text_query_provider"], resolved["text_query_model"])
     temperature = resolved["temperature"]
     top_k = resolved["top_k"]
     top_p = resolved["top_p"]
-    text_query_provider = resolved["text_query_provider"]
-    text_query_model = resolved["text_query_model"]
-    sensor_provider = resolved["sensor_provider"]
-    sensor_model = resolved["sensor_model"]
+    text_query_provider = text_query_provider_raw
+    text_query_model = text_query_model_raw
+    sensor_provider, sensor_model = fallback_model(resolved["sensor_provider"], resolved["sensor_model"])
 
     system_prompt = avatar_llms[avatar_id].system_prompt
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
@@ -1753,23 +1899,33 @@ def voice_chat_completions():
     ]
 
     # RAG context injection
+    # Voice RAG: skip LLM keyword generation — use spaCy/langid extraction directly on user utterance.
+    # This avoids a full LLM round-trip that would exceed Agora's response timeout.
+    # Trade-off: not context-aware across turns (only current utterance). See design notes.
     try:
-        tq_llm = create_llm_instance(text_query_provider, text_query_model,
-                                     TEXT_QUERY_SYSTEM_PROMPT, task_name="voice_text_query",
-                                     providers=providers)
-        if inject_rag_context(avatar_id, chat_history, conversation_for_rag, tq_llm, verbose=False):
-            print("[Voice] RAG context injected")
+        if avatar_rag_tools.get(avatar_id):
+            user_query = conversation_msgs[-1]["content"]
+            rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
+            keywords_by_lang = extract_keywords_multilingual(user_query, rag_languages)
+            rag_context = RAG(avatar_rag_tools[avatar_id], keywords_by_lang=keywords_by_lang)
+            if rag_context:
+                chat_history[-1]["content"] += f" <End of User message>. <<Context from knowledge base: {rag_context}>>"
+                print("[Voice] RAG context injected (direct keyword extraction)")
     except Exception as e:
         print(f"[Voice] RAG failed (continuing without context): {e}")
 
-    # Sensor tool prompt injection
+    # Sensor tool prompt injection + always-fetch snapshot
     sensor_config = avatar_sensor_tools.get(avatar_id)
     if sensor_config:
-        chat_history[0]["content"] += (
-            "\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
-            "say you'll look it up and call: analyze_sensor_data(user_query=\"...\"). "
-            "Otherwise respond normally."
-        )
+        sensor_summary = _fetch_sensor_summary(avatar_id)
+        if sensor_summary:
+            chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
+        else:
+            chat_history[0]["content"] += (
+                "\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
+                "say you'll look it up and call: analyze_sensor_data(user_query=\"...\"). "
+                "Otherwise respond normally."
+            )
 
     # Main LLM call
     llm = create_llm_instance(chat_provider, chat_model, system_prompt,

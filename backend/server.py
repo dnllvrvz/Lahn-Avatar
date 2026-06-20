@@ -1795,7 +1795,6 @@ def start_voice_agent():
                 "style": "openai",
                 "params": {"model": "avatar"},
                 "system_messages": [{"role": "system", "content": system_prompt}],
-                "greeting_message": "Hello. I am the voice of the Lahn.",
                 "failure_message": "I need a moment. Please hold on.",
                 "max_history": 10,
                 "timeout_ms": 30000,

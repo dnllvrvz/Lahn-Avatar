@@ -25,7 +25,6 @@ test/
 backend/.env
 backend/utils/.env
 
-backend/avatars.json
 backend/llm_providers.json
 
 backend/utils/.gdrive_service_account

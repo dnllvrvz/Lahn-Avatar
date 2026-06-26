@@ -20,15 +20,16 @@ createRoot(document.getElementById("root")).render(
 
     <Routes>
       {/*<Route path="/" element={<Layout />}>*/}
-      <Route index element={<LahnAvatarChat />} />
+      <Route index element={<MultiAvatarChat />} />
+      <Route path="avatars-chat" element={<MultiAvatarChat />} />
+      <Route path="lahn" element={<LahnAvatarChat />} />
       <Route path="chat" element={<LahnAvatarChat />} />
       <Route path="experience" element={<ExperienceUploadPage />} />
       <Route path="voice-chat" element={<VoiceChat />} />
       <Route path="voice-chat-stream" element={<VoiceChatStream />} />
-      <Route path="avatars-chat" element={<MultiAvatarChat />} />
       <Route path="backend-log" element={<BackendLog />} />
       <Route path="avatars-chat-voice" element={<AvatarsChatVoice />} />
-      <Route path="*" element={<LahnAvatarChat />} />
+      <Route path="*" element={<MultiAvatarChat />} />
       {/*</Route>*/}
     </Routes>
       

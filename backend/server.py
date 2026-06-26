@@ -345,18 +345,18 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
     verbose=True uses the full chat-style wrapper; False uses a compact voice wrapper.
     Returns True if context was injected.
     """
-    if not avatar_rag_tools.get(avatar_id):
+    tools = avatar_rag_tools.get(avatar_id)
+    if not tools:
         return False
-    if avatar_rag_tools[avatar_id] == [None, None, None, None, ['en', 'de']]:
+    if tools[0] is None:  # no-RAG sentinel: [None, None, None, None, langs]
         return False
 
-    rag_languages = (avatar_rag_tools[avatar_id][4]
-                     if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de'])
+    rag_languages = tools[4] if len(tools) > 4 else ['en', 'de']
 
     keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
         text_query_llm, conversation_for_rag, rag_languages
     )
-    context = RAG(avatar_rag_tools[avatar_id], None, keywords_by_lang=keywords_by_lang)
+    context = RAG(tools, None, keywords_by_lang=keywords_by_lang)
 
     if verbose:
         wrapper = (

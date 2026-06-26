@@ -1,4 +1,4 @@
-import os, json
+import os, json, threading, time
 from dotenv import load_dotenv
 
 from .llm_tooling import LLM
@@ -25,6 +25,105 @@ SENSOR_SYSTEM_PROMPT = 'Provide an accurate response to the given query. Only pe
 
 TEXT_QUERY_SYSTEM_PROMPT = 'Context is needed to address the most recent message in the conversation (NOTE: EMPHASIS ON THE USER\'S LAST MESSAGE. INFO IS NEEDED TO RESPOND TO THE USER\'S LAST MESSAGE) (Or maybe not. Look through the given conversation and determine. If not, your query could just be "General information about the Lahn"). Return a one-line string containing 6 total keywords, each separated by a comma and space: 3 relevant English keywords  (to be queried in the database) that aim to extract the needed context, a "|" divider, and another 3 keywords corresponding to the German translations of the earlier keywords. Your job is not to predict what any party will say, but to return these keywords, so they can be used to extract information relevant for the concerned party to make their decision. That is where your job stops. Reply only with the keywords and nothing else (not even "keywords:"). The keywords should be only relevant to the most recent message, since that is what context is needed on. Double-check that your response is in the format "keyword1, keyword2, keyword3 | keyword1translation, keyword2translation, keyword3translation", with the keywords being only relevant to the last message: :'
 
+RAG_EVICT_AFTER = 30 * 60  # seconds of inactivity before evicting an avatar's index
+
+
+class AvatarConfig:
+    def __init__(self, system_prompt):
+        self.system_prompt = system_prompt
+
+
+class LazyAvatarRAGTools:
+    """
+    Drop-in replacement for a plain dict of avatar RAG tools.
+    Avatars with a drive folder have their vector/text indices loaded on first
+    access and evicted after RAG_EVICT_AFTER seconds of inactivity.
+    Avatars without a drive folder return a no-op sentinel immediately.
+    """
+
+    def __init__(self):
+        self._meta = {}       # avatar_id -> {drive_folder_id, rag_languages}
+        self._loaded = {}     # avatar_id -> (tools, last_access_ts)
+        self._no_rag = {}     # avatar_id -> [None, None, None, None, rag_languages]
+        self._lock = threading.Lock()
+        t = threading.Thread(target=self._eviction_loop, daemon=True)
+        t.start()
+
+    # ── dict-like interface ──────────────────────────────────────────────────
+
+    def __contains__(self, avatar_id):
+        return avatar_id in self._meta or avatar_id in self._no_rag
+
+    def get(self, avatar_id, default=None):
+        try:
+            return self[avatar_id]
+        except KeyError:
+            return default
+
+    def __getitem__(self, avatar_id):
+        if avatar_id in self._no_rag:
+            return self._no_rag[avatar_id]
+
+        if avatar_id not in self._meta:
+            raise KeyError(avatar_id)
+
+        with self._lock:
+            if avatar_id in self._loaded:
+                tools, _ = self._loaded[avatar_id]
+                self._loaded[avatar_id] = (tools, time.time())
+                return tools
+
+        # Load outside the lock so other avatars aren't blocked
+        meta = self._meta[avatar_id]
+        print(f"[RAG cache] Loading index for avatar {avatar_id}...")
+        tools = prepare_query_engines(
+            avatar_id=avatar_id,
+            drive_folder_id=meta['drive_folder_id'],
+            rag_languages=meta['rag_languages'],
+        )
+        with self._lock:
+            self._loaded[avatar_id] = (tools, time.time())
+        print(f"[RAG cache] Avatar {avatar_id} index loaded and cached")
+        return tools
+
+    def __setitem__(self, avatar_id, value):
+        """
+        Support direct assignment used by refresh endpoints and generate_avatars_config.
+        If value looks like loaded tools (list starting with a non-None), cache it.
+        If value is a no-rag sentinel, store in _no_rag.
+        """
+        if isinstance(value, list) and (not value or value[0] is None):
+            self._no_rag[avatar_id] = value
+            with self._lock:
+                self._loaded.pop(avatar_id, None)
+        else:
+            with self._lock:
+                self._loaded[avatar_id] = (value, time.time())
+
+    def register(self, avatar_id, drive_folder_id, rag_languages):
+        """Register an avatar for lazy loading without loading its index yet."""
+        self._meta[avatar_id] = {
+            'drive_folder_id': drive_folder_id,
+            'rag_languages': rag_languages,
+        }
+
+    def invalidate(self, avatar_id):
+        """Force eviction so the next access reloads from disk."""
+        with self._lock:
+            self._loaded.pop(avatar_id, None)
+
+    # ── background eviction ──────────────────────────────────────────────────
+
+    def _eviction_loop(self):
+        while True:
+            time.sleep(60)
+            cutoff = time.time() - RAG_EVICT_AFTER
+            with self._lock:
+                stale = [aid for aid, (_, ts) in self._loaded.items() if ts < cutoff]
+                for aid in stale:
+                    del self._loaded[aid]
+                    print(f"[RAG cache] Evicted avatar {aid} index (inactive for 30 min)")
+
 
 class AvatarConfig:
     def __init__(self, system_prompt):
@@ -32,20 +131,18 @@ class AvatarConfig:
 
 def generate_avatars_config(specific_avatar_id=None):
 	global avatars_path, avatar_llms, avatar_rag_tools, avatar_sensor_tools
-	# In-memory storage (replace with DB later if you like)
 	avatars_path = 'avatars.json'
 	avatars = json.load(open(avatars_path, 'r'))
 
 	if specific_avatar_id is None:
 		avatar_llms = {}
-		avatar_rag_tools = {}
-		avatar_sensor_tools = {}  # Already declared global
+		avatar_rag_tools = LazyAvatarRAGTools()
+		avatar_sensor_tools = {}
 		avatars_to_process = avatars
 	else:
-		# If we are refreshing a single avatar, we don't want to wipe the existing dicts
 		avatars_to_process = [a for a in avatars if a['id'] == specific_avatar_id]
 		if not avatars_to_process:
-			return None, None, None # Avatar not found
+			return None, None, None
 
 	for avatar in avatars_to_process:
 		avatar_id = avatar['id']
@@ -58,18 +155,23 @@ def generate_avatars_config(specific_avatar_id=None):
 				fetch_system_prompt_from_gdoc(avatar_id, avatar['systemPromptUrl'])
 				system_prompt = open('avatars_context/'+avatar_id+'/prompt/system_prompt.txt','r').read()
 			else:
-				system_prompt = "Default system prompt." # Or handle error appropriately
+				system_prompt = "Default system prompt."
 
 		avatar_config = AvatarConfig(system_prompt=system_prompt)
 
-		# Get RAG languages with backward compatibility
 		rag_languages = avatar.get('ragLanguages', ['en', 'de'])
+		drive_folder_id = avatar.get('driveFolderId')
 		print(f"Avatar {avatar_id} RAG languages: {rag_languages}")
 
-		rag_tools = prepare_query_engines(avatar_id=avatar_id, drive_folder_id=avatar.get('driveFolderId'), rag_languages=rag_languages)
+		if drive_folder_id:
+			# Register for lazy loading — index is NOT loaded now
+			avatar_rag_tools.register(avatar_id, drive_folder_id, rag_languages)
+			print(f"Avatar {avatar_id} RAG index registered for lazy loading")
+		else:
+			# No RAG — store no-op sentinel immediately (cheap)
+			avatar_rag_tools[avatar_id] = [None, None, None, None, rag_languages]
+			print(f"Avatar {avatar_id} has no drive folder — RAG disabled")
 
-		# Store sensor config (URL + description) instead of pre-instantiated tool
-		# The SensorsTool will be created on-the-fly with the appropriate LLM per request
 		sensor_api_url = avatar.get('sensorApiUrl', '').strip()
 		sensor_description = avatar.get('sensorDescription', '').strip()
 
@@ -85,11 +187,13 @@ def generate_avatars_config(specific_avatar_id=None):
 
 		if specific_avatar_id:
 			avatar_llms[avatar_id] = avatar_config
-			avatar_rag_tools[avatar_id] = rag_tools
-			return avatar_config, rag_tools, avatar_sensor_tools
+			# For a refresh, force-load the index immediately so it's ready
+			if drive_folder_id:
+				avatar_rag_tools.invalidate(avatar_id)
+				_ = avatar_rag_tools[avatar_id]  # trigger load
+			return avatar_config, avatar_rag_tools[avatar_id], avatar_sensor_tools
 
 		avatar_llms[avatar_id] = avatar_config
-		avatar_rag_tools[avatar_id] = rag_tools
 
 	return avatar_llms, avatar_rag_tools, avatar_sensor_tools
 

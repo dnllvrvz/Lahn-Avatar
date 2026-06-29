@@ -307,94 +307,116 @@ export default function AvatarsChatVoice() {
               Base URL: <code className="bg-stone-100 rounded px-1">https://avatars.sympoiesis.xyz</code>
             </p>
 
-            <p className="font-poetic font-semibold text-stone-600">Step 0 — Discover available avatars</p>
+            <p className="font-poetic font-semibold text-stone-600">Requirements</p>
+            <p className="font-poetic">Python 3.10 or newer. Linux or macOS (Raspberry Pi / arm64 supported, Windows is not).</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`# On Raspberry Pi, install system audio libraries first:
+sudo apt-get install python3-pyaudio portaudio19-dev
+
+# Then install Python packages:
+pip install agora-python-server-sdk pyaudio requests`}</pre>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 0 — Find available avatars</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`GET /api/avatars
 ← [{ "id": "0", "name": "Lahn" }, { "id": "1", "name": "..." }, ...]`}</pre>
 
-            <p className="font-poetic font-semibold text-stone-600">Step 1 — Request a channel token</p>
-            <p>Choose a unique channel name for your device and a numeric user ID.</p>
+            <p className="font-poetic font-semibold text-stone-600">Step 1 — Get a channel token</p>
+            <p className="font-poetic">Choose a unique name for your device's channel and any numeric user ID.</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`GET /api/voice/token?channel=my-device&uid=1
 ← { appId, channel, uid, token }`}</pre>
 
             <p className="font-poetic font-semibold text-stone-600">Step 2 — Start the avatar</p>
-            <p>Use the <code className="bg-stone-100 rounded px-1">id</code> from Step 0 and the <code className="bg-stone-100 rounded px-1">channel</code> / <code className="bg-stone-100 rounded px-1">uid</code> from Step 1.</p>
+            <p className="font-poetic">Use the avatar <code className="bg-stone-100 rounded px-1">id</code> from Step 0 and the <code className="bg-stone-100 rounded px-1">channel</code> / <code className="bg-stone-100 rounded px-1">uid</code> from Step 1.</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/start
 Content-Type: application/json
 { "avatarId": "0", "channel": "my-device", "userUid": 1 }
 ← { agentId, channel }`}</pre>
 
-            <p className="font-poetic font-semibold text-stone-600">Step 3 — Join the channel and talk</p>
-            <p>Install the Agora Python Server SDK, then run something like the script below. It joins the channel, publishes microphone audio so the avatar can hear you, and plays back the avatar's spoken response.</p>
-            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`pip install agora-python-server-sdk pyaudio
-
-import pyaudio, requests, threading
+            <p className="font-poetic font-semibold text-stone-600">Step 3 — Run the client script</p>
+            <p className="font-poetic">Save the script below as <code className="bg-stone-100 rounded px-1">avatar_client.py</code>. Edit the four constants at the top, then run it. It handles Steps 1 and 2 automatically, joins the channel, streams your mic to the avatar, and plays the avatar's voice through your speaker. Press Ctrl+C to end.</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`#!/usr/bin/env python3
+import asyncio, pyaudio, requests
 from agora.rtc.agora_service import AgoraService, AgoraServiceConfig
-from agora.rtc.rtc_connection import RTCConnection, RTCConnConfig
-from agora.rtc.audio_pcm_data_sender import AudioPcmDataSender
-from agora.rtc.local_user import LocalUser
+from agora.rtc.rtc_connection import RTCConnConfig, RtcConnectionPublishConfig
+from agora.rtc.agora_base import (
+    AudioProfileType, AudioScenarioType, AudioPublishType, VideoPublishType,
+    AudioSubscriptionOptions, ClientRoleType, ChannelProfileType,
+)
+from agora.rtc.audio_frame_observer import IAudioFrameObserver
 
-BASE   = "https://avatars.sympoiesis.xyz"
-CHAN   = "my-device"
-UID    = 1
-AVATAR = "0"
+# ── configure these ──────────────────────────────────────────────
+BASE    = "https://avatars.sympoiesis.xyz"
+CHANNEL = "my-device"   # unique name for this device
+UID     = 1             # any integer
+AVATAR  = "0"           # avatar id from GET /api/avatars
+# ─────────────────────────────────────────────────────────────────
 
-# 1 & 2: get credentials and start the avatar
-creds  = requests.get(f"{BASE}/api/voice/token?channel={CHAN}&uid={UID}").json()
-agent  = requests.post(f"{BASE}/api/voice/agent/start",
-           json={"avatarId": AVATAR, "channel": CHAN, "userUid": UID}).json()
-agent_id = agent["agentId"]
+RATE, CH, CHUNK = 16000, 1, int(16000 * 0.02)  # 16 kHz mono, 20 ms frames
 
-# 3: join Agora channel
-svc_cfg         = AgoraServiceConfig()
-svc_cfg.app_id  = creds["appId"]
-svc             = AgoraService()
-svc.initialize(svc_cfg)
+pa      = pyaudio.PyAudio()
+speaker = pa.open(format=pyaudio.paInt16, channels=CH, rate=RATE, output=True)
 
-conn_cfg = RTCConnConfig()
-conn     = svc.create_rtc_connection(conn_cfg)
-conn.connect(creds["token"], CHAN, str(UID))
+class SpeakerObserver(IAudioFrameObserver):
+    def on_playback_audio_frame_before_mixing(self, _lu, _cid, _uid, frame, _vs=0, _vd=None):
+        speaker.write(bytes(frame.buffer))
+        return 1
 
-# publish mic audio (16 kHz, mono, 16-bit PCM)
-sender = svc.create_audio_pcm_data_sender()
-track  = svc.create_custom_audio_track_pcm(sender)
-conn.local_user.publish_audio(track)
-track.set_enabled(1)
+async def main():
+    creds = requests.get(f"{BASE}/api/voice/token?channel={CHANNEL}&uid={UID}").json()
+    agent = requests.post(f"{BASE}/api/voice/agent/start",
+                json={"avatarId": AVATAR, "channel": CHANNEL, "userUid": UID}).json()
+    agent_id = agent["agentId"]
+    print(f"Avatar started — speak into your mic. Ctrl+C to end.")
 
-RATE, CHUNK = 16000, 1600
-pa  = pyaudio.PyAudio()
-mic = pa.open(format=pyaudio.paInt16, channels=1,
-              rate=RATE, input=True, frames_per_buffer=CHUNK)
+    svc_cfg       = AgoraServiceConfig()
+    svc_cfg.appid = creds["appId"]
+    svc           = AgoraService()
+    svc.initialize(svc_cfg)
 
-def send_mic():
-    while True:
-        pcm = mic.read(CHUNK, exception_on_overflow=False)
-        sender.send_audio_pcm_data(pcm, 0, RATE, 16, 1)
+    conn_cfg = RTCConnConfig(
+        client_role_type=ClientRoleType.CLIENT_ROLE_BROADCASTER,
+        channel_profile=ChannelProfileType.CHANNEL_PROFILE_LIVE_BROADCASTING,
+        auto_subscribe_audio=1,
+        auto_subscribe_video=0,
+        audio_recv_media_packet=0,
+        audio_subs_options=AudioSubscriptionOptions(
+            packet_only=0, pcm_data_only=1,
+            bytes_per_sample=2, number_of_channels=CH, sample_rate_hz=RATE,
+        ),
+    )
+    pub_cfg = RtcConnectionPublishConfig(
+        audio_profile=AudioProfileType.AUDIO_PROFILE_DEFAULT,
+        audio_scenario=AudioScenarioType.AUDIO_SCENARIO_AI_SERVER,
+        is_publish_audio=True, is_publish_video=False,
+        audio_publish_type=AudioPublishType.AUDIO_PUBLISH_TYPE_PCM,
+        video_publish_type=VideoPublishType.VIDEO_PUBLISH_TYPE_NONE,
+    )
+    conn = svc.create_rtc_connection(conn_cfg, pub_cfg)
+    conn.connect(creds["token"], CHANNEL, str(UID))
 
-threading.Thread(target=send_mic, daemon=True).start()
+    local_user = conn.get_local_user()
+    local_user.set_playback_audio_frame_before_mixing_parameters(CH, RATE)
+    conn.register_audio_frame_observer(SpeakerObserver(), 0, None)
+    conn.publish_audio()
 
-# subscribe to avatar audio and play through speaker
-spk = pa.open(format=pyaudio.paInt16, channels=1,
-              rate=RATE, output=True)
+    mic  = pa.open(format=pyaudio.paInt16, channels=CH, rate=RATE,
+                   input=True, frames_per_buffer=CHUNK)
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            pcm = await loop.run_in_executor(None, mic.read, CHUNK)
+            conn.push_audio_pcm_data(pcm, RATE, CH)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    finally:
+        mic.stop_stream(); mic.close()
+        requests.post(f"{BASE}/api/voice/agent/stop", json={"agentId": agent_id})
+        conn.disconnect(); conn.release()
+        svc.release()
+        speaker.stop_stream(); speaker.close()
+        pa.terminate()
+        print("Session ended.")
 
-class AudioSink:
-    def on_playback_audio_frame(self, frame, _uid):
-        spk.write(bytes(frame.buffer))
-
-conn.local_user.register_audio_frame_observer(AudioSink())
-conn.local_user.subscribe_all_audio()
-
-input("Press Enter to end session...\\n")
-
-# 4: stop the avatar and leave
-requests.post(f"{BASE}/api/voice/agent/stop", json={"agentId": agent_id})
-conn.disconnect()
-svc.release()`}</pre>
-
-            <p className="font-poetic font-semibold text-stone-600">Step 4 — End the session</p>
-            <p>If you're not using the script above, stop the avatar manually:</p>
-            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/stop
-Content-Type: application/json
-{ "agentId": "<id from step 2>" }`}</pre>
+asyncio.run(main())`}</pre>
           </div>
         </details>
       )}

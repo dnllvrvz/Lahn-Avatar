@@ -17,6 +17,7 @@ const STATUS_LABEL = {
 export default function AvatarsChatVoice() {
   const [status, setStatus] = useState("idle");
   const [isConnected, setIsConnected] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [userVolume, setUserVolume] = useState(0);
   const [avatarVolume, setAvatarVolume] = useState(0);
   const [avatars, setAvatars] = useState([]);
@@ -61,6 +62,7 @@ export default function AvatarsChatVoice() {
   }, []);
 
   const disconnect = useCallback(async (silent = false) => {
+    if (!silent) setIsDisconnecting(true);
     stopVolumePolling();
 
     if (agentId) {
@@ -87,6 +89,7 @@ export default function AvatarsChatVoice() {
     }
 
     setIsConnected(false);
+    setIsDisconnecting(false);
     setStatus("idle");
   }, [agentId, stopVolumePolling]);
 
@@ -280,9 +283,10 @@ export default function AvatarsChatVoice() {
       ) : (
         <Button
           onClick={() => disconnect()}
-          className="bg-red-600 hover:bg-red-700 text-white rounded-full px-8 py-3 text-base font-poetic"
+          disabled={isDisconnecting}
+          className="bg-red-600 hover:bg-red-700 text-white rounded-full px-8 py-3 text-base font-poetic disabled:opacity-60"
         >
-          End Conversation
+          {isDisconnecting ? "Ending…" : "End Conversation"}
         </Button>
       )}
 
@@ -293,32 +297,103 @@ export default function AvatarsChatVoice() {
 
       {/* Device integration guide */}
       {!isConnected && (
-        <details className="mt-4 max-w-sm w-full">
+        <details className="mt-4 max-w-lg w-full">
           <summary className="text-xs text-stone-400 cursor-pointer font-poetic">
             Connecting a hardware device (Raspberry Pi / ReSpeaker)
           </summary>
           <div className="mt-2 text-xs text-stone-500 space-y-3 font-mono">
             <p className="font-poetic text-stone-600">Your device joins a shared voice channel. The avatar listens, thinks, and speaks back — your device only needs to handle audio input and output.</p>
+            <p className="font-poetic text-stone-500">
+              Base URL: <code className="bg-stone-100 rounded px-1">https://avatars.sympoiesis.xyz</code>
+            </p>
+
+            <p className="font-poetic font-semibold text-stone-600">Step 0 — Discover available avatars</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`GET /api/avatars
+← [{ "id": "0", "name": "Lahn" }, { "id": "1", "name": "..." }, ...]`}</pre>
 
             <p className="font-poetic font-semibold text-stone-600">Step 1 — Request a channel token</p>
+            <p>Choose a unique channel name for your device and a numeric user ID.</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`GET /api/voice/token?channel=my-device&uid=1
 ← { appId, channel, uid, token }`}</pre>
 
             <p className="font-poetic font-semibold text-stone-600">Step 2 — Start the avatar</p>
+            <p>Use the <code className="bg-stone-100 rounded px-1">id</code> from Step 0 and the <code className="bg-stone-100 rounded px-1">channel</code> / <code className="bg-stone-100 rounded px-1">uid</code> from Step 1.</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/start
+Content-Type: application/json
 { "avatarId": "0", "channel": "my-device", "userUid": 1 }
 ← { agentId, channel }`}</pre>
 
             <p className="font-poetic font-semibold text-stone-600">Step 3 — Join the channel and talk</p>
-            <p>Install Agora's Python SDK and join the channel using the credentials from Step 1. Capture mic audio and publish it; subscribe to receive the avatar's spoken responses.</p>
-            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`pip install agora-python-server-sdk
+            <p>Install the Agora Python Server SDK, then run something like the script below. It joins the channel, publishes microphone audio so the avatar can hear you, and plays back the avatar's spoken response.</p>
+            <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`pip install agora-python-server-sdk pyaudio
 
-# join with appId + token from step 1
-# publish mic audio → avatar hears you
-# subscribe to audio → play avatar's response`}</pre>
+import pyaudio, requests, threading
+from agora.rtc.agora_service import AgoraService, AgoraServiceConfig
+from agora.rtc.rtc_connection import RTCConnection, RTCConnConfig
+from agora.rtc.audio_pcm_data_sender import AudioPcmDataSender
+from agora.rtc.local_user import LocalUser
+
+BASE   = "https://avatars.sympoiesis.xyz"
+CHAN   = "my-device"
+UID    = 1
+AVATAR = "0"
+
+# 1 & 2: get credentials and start the avatar
+creds  = requests.get(f"{BASE}/api/voice/token?channel={CHAN}&uid={UID}").json()
+agent  = requests.post(f"{BASE}/api/voice/agent/start",
+           json={"avatarId": AVATAR, "channel": CHAN, "userUid": UID}).json()
+agent_id = agent["agentId"]
+
+# 3: join Agora channel
+svc_cfg         = AgoraServiceConfig()
+svc_cfg.app_id  = creds["appId"]
+svc             = AgoraService()
+svc.initialize(svc_cfg)
+
+conn_cfg = RTCConnConfig()
+conn     = svc.create_rtc_connection(conn_cfg)
+conn.connect(creds["token"], CHAN, str(UID))
+
+# publish mic audio (16 kHz, mono, 16-bit PCM)
+sender = svc.create_audio_pcm_data_sender()
+track  = svc.create_custom_audio_track_pcm(sender)
+conn.local_user.publish_audio(track)
+track.set_enabled(1)
+
+RATE, CHUNK = 16000, 1600
+pa  = pyaudio.PyAudio()
+mic = pa.open(format=pyaudio.paInt16, channels=1,
+              rate=RATE, input=True, frames_per_buffer=CHUNK)
+
+def send_mic():
+    while True:
+        pcm = mic.read(CHUNK, exception_on_overflow=False)
+        sender.send_audio_pcm_data(pcm, 0, RATE, 16, 1)
+
+threading.Thread(target=send_mic, daemon=True).start()
+
+# subscribe to avatar audio and play through speaker
+spk = pa.open(format=pyaudio.paInt16, channels=1,
+              rate=RATE, output=True)
+
+class AudioSink:
+    def on_playback_audio_frame(self, frame, _uid):
+        spk.write(bytes(frame.buffer))
+
+conn.local_user.register_audio_frame_observer(AudioSink())
+conn.local_user.subscribe_all_audio()
+
+input("Press Enter to end session...\\n")
+
+# 4: stop the avatar and leave
+requests.post(f"{BASE}/api/voice/agent/stop", json={"agentId": agent_id})
+conn.disconnect()
+svc.release()`}</pre>
 
             <p className="font-poetic font-semibold text-stone-600">Step 4 — End the session</p>
+            <p>If you're not using the script above, stop the avatar manually:</p>
             <pre className="bg-stone-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{`POST /api/voice/agent/stop
+Content-Type: application/json
 { "agentId": "<id from step 2>" }`}</pre>
           </div>
         </details>

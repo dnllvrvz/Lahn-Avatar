@@ -11,8 +11,8 @@ API_BASE = None #os.getenv("GWDG_API_BASE")
 
 
 # Default LLM choices for each task (used when not specified in request)
-DEFAULT_CHAT_PROVIDER = "gwdg"
-DEFAULT_CHAT_MODEL = "gwdg/gemma-3-27b-it"
+DEFAULT_CHAT_PROVIDER = "openrouter"
+DEFAULT_CHAT_MODEL = "google/gemma-4-26b-a4b-it"
 
 DEFAULT_TEXT_QUERY_PROVIDER = "openai"
 DEFAULT_TEXT_QUERY_MODEL = "gpt-4.1-mini"

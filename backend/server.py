@@ -350,16 +350,17 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
     """
     tools = avatar_rag_tools.get(avatar_id)
     has_rag = tools and tools[0] is not None
+    has_sensor = bool(avatar_sensor_tools.get(avatar_id))
 
     if not has_rag:
         # No RAG — run a cheap dedicated web search intent check
-        web_search_query = detect_web_search_intent(text_query_llm, conversation_for_rag)
+        web_search_query = detect_web_search_intent(text_query_llm, conversation_for_rag, has_sensor=has_sensor)
         return False, web_search_query
 
     rag_languages = tools[4] if len(tools) > 4 else ['en', 'de']
 
     keywords_by_lang, web_search_query = generate_context_aware_keywords_for_multilingual_text_index_search(
-        text_query_llm, conversation_for_rag, rag_languages
+        text_query_llm, conversation_for_rag, rag_languages, has_sensor=has_sensor
     )
     context = RAG(tools, None, keywords_by_lang=keywords_by_lang)
 

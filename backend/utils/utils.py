@@ -1064,7 +1064,7 @@ def fetch_text_index_query(text_query_llm, conversation):
     return query
 
 
-def generate_context_aware_keywords_for_multilingual_text_index_search(text_query_llm, conversation, rag_languages):
+def generate_context_aware_keywords_for_multilingual_text_index_search(text_query_llm, conversation, rag_languages, has_sensor=False):
     """
     Analyze the full conversation context and generate keywords for multilingual text-index (BM25) search.
 
@@ -1096,6 +1096,11 @@ def generate_context_aware_keywords_for_multilingual_text_index_search(text_quer
     languages_str = ", ".join(rag_languages)
     num_keywords = 3  # Keywords per language
 
+    sensor_note = (
+        "- Questions about current sensor readings (temperature, pH, water quality, etc.) "
+        "— these are available via a live sensor feed, not the web.\n"
+        if has_sensor else ""
+    )
     # Create dynamic system prompt based on RAG languages
     system_prompt = f"""Context is needed to address the most recent message in the conversation.
 Look through the given conversation and determine what context is needed.
@@ -1105,8 +1110,9 @@ If no specific context is needed (e.g., simple greetings), return general keywor
 
 Also determine whether the user's last message requires live/current information from the internet
 (e.g. recent news, recent research publications, current events not in a static knowledge base).
-Do NOT flag as web search: questions answerable from the knowledge base, sensor readings, or general conversation.
-
+Do NOT flag as web search:
+- Questions answerable from the knowledge base or general conversation.
+{sensor_note}
 Return your response in exactly TWO lines:
 Line 1: keyword1_lang1, keyword2_lang1, keyword3_lang1 | keyword1_lang2, keyword2_lang2, keyword3_lang2 | ...
 Line 2: WEB_SEARCH: <specific search query>   (if live internet data is needed)
@@ -1167,16 +1173,22 @@ Reply only in this two-line format, nothing else."""
         text_query_llm.system_prompt = original_prompt
 
 
-def detect_web_search_intent(text_query_llm, conversation):
+def detect_web_search_intent(text_query_llm, conversation, has_sensor=False):
     """
     Lightweight call to determine whether the user's last message requires a live web search.
     Used for avatars that have no RAG index (so no keyword-generation call is made).
     Returns a search query string, or None.
     """
-    system_prompt = """Does the user's last message require live/current information from the internet?
+    sensor_note = (
+        "- Questions about current sensor readings (temperature, pH, water quality, etc.) "
+        "— these are available via a live sensor feed, not the web.\n"
+        if has_sensor else ""
+    )
+    system_prompt = f"""Does the user's last message require live/current information from the internet?
 (e.g. recent news, recent research, current events not in a static knowledge base)
-Do NOT flag: questions about the Lahn answerable from a knowledge base, current sensor readings, or general conversation.
-
+Do NOT flag:
+- Questions answerable from a knowledge base or general conversation.
+{sensor_note}
 Reply with exactly one line:
 WEB_SEARCH: <specific search query>   — if live internet data is needed
 WEB_SEARCH: NONE                       — otherwise"""

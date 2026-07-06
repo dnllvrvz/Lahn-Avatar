@@ -33,6 +33,7 @@ from utils.processing_pipelines import OpenAIRealtimeClient
 from utils.utils import (
     RAG,
     build_or_load_index,
+    detect_web_search_intent,
     extract_keywords_multilingual,
     fetch_system_prompt_from_gdoc,
     fetch_text_index_query,
@@ -343,27 +344,28 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
     """
     Inject RAG context into the last message of chat_history (in-place).
     verbose=True uses the full chat-style wrapper; False uses a compact voice wrapper.
-    Returns True if context was injected.
+    Returns (rag_injected: bool, web_search_query: str | None).
+    The web_search_query is detected in the same LLM call as keyword generation (RAG path),
+    or via a dedicated lightweight call (no-RAG path).
     """
     tools = avatar_rag_tools.get(avatar_id)
-    if not tools:
-        return False
-    if tools[0] is None:  # no-RAG sentinel: [None, None, None, None, langs]
-        return False
+    has_rag = tools and tools[0] is not None
+
+    if not has_rag:
+        # No RAG — run a cheap dedicated web search intent check
+        web_search_query = detect_web_search_intent(text_query_llm, conversation_for_rag)
+        return False, web_search_query
 
     rag_languages = tools[4] if len(tools) > 4 else ['en', 'de']
 
-    keywords_by_lang = generate_context_aware_keywords_for_multilingual_text_index_search(
+    keywords_by_lang, web_search_query = generate_context_aware_keywords_for_multilingual_text_index_search(
         text_query_llm, conversation_for_rag, rag_languages
     )
     context = RAG(tools, None, keywords_by_lang=keywords_by_lang)
 
     if verbose:
         wrapper = (
-            " <End of User message>.        <<IMPORTANT: If the user explicitly asked you to "
-            "'search the web', 'look up on the internet', or requested information from the web, "
-            "you MUST call web_search(query=\"their search query\") instead of using this RAG data. "
-            "Output ONLY the function call line. Otherwise, the following info is a RAG injection "
+            " <End of User message>.        <<IMPORTANT: The following info is a RAG injection "
             "to provide you with helpful context. The user did not send this: Here is relevant "
             "information (Sometimes the text-retrieval has relevant information that the "
             "vector-retrieval doesn't, or vice versa. Look through each comprehensively, to "
@@ -377,7 +379,7 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
         wrapper = " <End of User message>. <<Context from knowledge base: "
 
     chat_history[-1]["content"] += wrapper + context + (">>" if not verbose else "")
-    return True
+    return True, web_search_query
 
 
 def handle_sensor_tool_call(response_text, avatar_id, sensor_provider, sensor_model,
@@ -843,8 +845,14 @@ def chat():
         task_name="text_query", providers=providers,
     )
 
-    # === RAG Context Injection ===
-    if inject_rag_context(avatar_id, chat_history, conversation, text_query_llm, verbose=True):
+    # === RAG Context Injection + Web Search Intent Classification ===
+    # inject_rag_context returns (rag_injected, web_search_query).
+    # For RAG avatars the web search intent is detected in the same LLM call as keyword generation.
+    # For no-RAG avatars a dedicated lightweight call is made instead.
+    rag_injected, pre_web_search_query = inject_rag_context(
+        avatar_id, chat_history, conversation, text_query_llm, verbose=True
+    )
+    if rag_injected:
         print("Obtaining information for the LLM...")
 
     # === Sensor Tool Function Schema ===
@@ -894,8 +902,19 @@ When you call a function, output ONLY the function call line, nothing else.
         if sensor_summary:
             chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
 
+    # === Pre-fetch web search results (classifier-driven) ===
+    # If the intent classifier detected a need for live data, fetch now and inject
+    # into the system prompt so the main LLM never needs to emit a tool call.
+    if pre_web_search_query:
+        print(f"[web search] Pre-fetching for classifier query: {pre_web_search_query!r}")
+        pre_search_results = web_search(pre_web_search_query, count=5)
+        chat_history[0]["content"] += (
+            f"\n\nWEB SEARCH RESULTS (pre-fetched for your response):\n{pre_search_results}\n"
+            "Use these results to inform your answer where relevant. "
+            "Respond conversationally. Use the same language as the user."
+        )
+
     messages_to_send = chat_history
-    # print("\n\nMessages to send: ", messages_to_send)
 
     # === Create chat LLM for main conversation ===
     llm = create_llm_instance(user_chat_provider, user_chat_model, system_prompt_,

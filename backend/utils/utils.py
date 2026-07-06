@@ -1103,16 +1103,26 @@ Look through the given conversation and determine what context is needed.
 If specific context is needed, return {num_keywords} relevant keywords for each of these languages: {languages_str}.
 If no specific context is needed (e.g., simple greetings), return general keywords about the Lahn/river.
 
-Return your response in this exact format:
-keyword1_lang1, keyword2_lang1, keyword3_lang1 | keyword1_lang2, keyword2_lang2, keyword3_lang2 | ...
+Also determine whether the user's last message requires live/current information from the internet
+(e.g. recent news, recent research publications, current events not in a static knowledge base).
+Do NOT flag as web search: questions answerable from the knowledge base, sensor readings, or general conversation.
 
-Where languages are in this order: {languages_str}
+Return your response in exactly TWO lines:
+Line 1: keyword1_lang1, keyword2_lang1, keyword3_lang1 | keyword1_lang2, keyword2_lang2, keyword3_lang2 | ...
+Line 2: WEB_SEARCH: <specific search query>   (if live internet data is needed)
+         WEB_SEARCH: NONE                       (otherwise)
 
-For example, if languages are ['en', 'de', 'pt']:
-"water, quality, measurement | Wasser, Qualität, Messung | água, qualidade, medição"
+Where languages on line 1 are in this order: {languages_str}
 
-Your job is to determine what context is needed and generate appropriate keywords.
-Reply only with the keywords in the specified format, nothing else."""
+For example, if languages are ['en', 'de']:
+"water, quality, measurement | Wasser, Qualität, Messung
+WEB_SEARCH: NONE"
+
+Or if recent news is needed:
+"Lahn, news, research | Lahn, Nachrichten, Forschung
+WEB_SEARCH: latest Lahn river research 2026"
+
+Reply only in this two-line format, nothing else."""
 
     # Update the LLM's system prompt temporarily
     original_prompt = text_query_llm.system_prompt
@@ -1122,28 +1132,68 @@ Reply only with the keywords in the specified format, nothing else."""
         query_prompt = "Here is the conversation: " + format_history_as_string(conversation)
         response = str(text_query_llm.complete(query_prompt)).strip()
 
-        print(f"LLM generated keywords: {response}")
+        print(f"LLM generated keywords + web intent: {response}")
 
-        # Parse the response into language-specific keywords
+        lines = response.splitlines()
+        keywords_line = lines[0].strip() if lines else ""
+        web_line = lines[1].strip() if len(lines) > 1 else ""
+
+        # Parse RAG keywords
         keywords_by_lang = {}
-        parts = response.split("|")
-
+        parts = keywords_line.split("|")
         for i, part in enumerate(parts):
             if i < len(rag_languages):
                 lang = rag_languages[i]
                 keywords = [k.strip() for k in part.split(",") if k.strip()]
-                keywords_by_lang[lang] = keywords[:num_keywords]  # Limit to num_keywords
+                keywords_by_lang[lang] = keywords[:num_keywords]
 
-        # Ensure all languages are present
         for lang in rag_languages:
             if lang not in keywords_by_lang:
                 keywords_by_lang[lang] = []
 
+        # Parse web search intent
+        web_search_query = None
+        if web_line.upper().startswith("WEB_SEARCH:"):
+            q = web_line[len("WEB_SEARCH:"):].strip()
+            if q.upper() != "NONE" and q:
+                web_search_query = q
+
         print(f"Parsed keywords by language: {keywords_by_lang}")
-        return keywords_by_lang
+        print(f"Web search intent: {web_search_query!r}")
+        return keywords_by_lang, web_search_query
 
     finally:
         # Restore original system prompt
+        text_query_llm.system_prompt = original_prompt
+
+
+def detect_web_search_intent(text_query_llm, conversation):
+    """
+    Lightweight call to determine whether the user's last message requires a live web search.
+    Used for avatars that have no RAG index (so no keyword-generation call is made).
+    Returns a search query string, or None.
+    """
+    system_prompt = """Does the user's last message require live/current information from the internet?
+(e.g. recent news, recent research, current events not in a static knowledge base)
+Do NOT flag: questions about the Lahn answerable from a knowledge base, current sensor readings, or general conversation.
+
+Reply with exactly one line:
+WEB_SEARCH: <specific search query>   — if live internet data is needed
+WEB_SEARCH: NONE                       — otherwise"""
+
+    original_prompt = text_query_llm.system_prompt
+    text_query_llm.system_prompt = system_prompt
+    try:
+        response = str(text_query_llm.complete(
+            "Here is the conversation: " + format_history_as_string(conversation)
+        )).strip()
+        print(f"Web search intent (no-RAG path): {response!r}")
+        if response.upper().startswith("WEB_SEARCH:"):
+            q = response[len("WEB_SEARCH:"):].strip()
+            if q.upper() != "NONE" and q:
+                return q
+        return None
+    finally:
         text_query_llm.system_prompt = original_prompt
 
 

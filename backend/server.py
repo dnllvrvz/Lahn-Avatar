@@ -65,11 +65,40 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GWDG_API_KEY = os.getenv("GWDG_API_KEY")
 GWDG_API_BASE = os.getenv("GWDG_API_BASE")
-AGORA_APP_ID = os.getenv("AGORA_APP_ID", "")
-AGORA_CUSTOMER_ID = os.getenv("AGORA_CUSTOMER_ID", "")
-AGORA_CUSTOMER_SECRET = os.getenv("AGORA_CUSTOMER_SECRET", "")
 BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
 LLM_PROVIDERS_PATH = "llm_providers.json"
+INTEGRATIONS_PATH = "integrations.json"
+
+INTEGRATION_KEYS = [
+    "BRAVE_SEARCH_API_KEY",
+    "AGORA_APP_ID",
+    "AGORA_APP_CERTIFICATE",
+    "AGORA_CUSTOMER_ID",
+    "AGORA_CUSTOMER_SECRET",
+    "DEEPGRAM_API_KEY",
+    "CARTESIA_API_KEY",
+]
+
+def _load_integrations():
+    if os.path.exists(INTEGRATIONS_PATH):
+        try:
+            return json.load(open(INTEGRATIONS_PATH))
+        except Exception:
+            pass
+    return {}
+
+def _save_integrations(data):
+    json.dump(data, open(INTEGRATIONS_PATH, "w"), indent=2)
+
+def get_integration_key(name):
+    """Read an integration key: integrations.json first, then os.getenv() fallback."""
+    val = _load_integrations().get(name, "")
+    if val:
+        return val
+    return os.getenv(name, "")
+
+if not os.path.exists(INTEGRATIONS_PATH):
+    _save_integrations({k: "" for k in INTEGRATION_KEYS})
 HEALTH_CACHE_PATH = "llm_health_cache.json"
 _models_last_refreshed = None  # ISO timestamp, set after each model list refresh
 _model_health_cache = json.load(open(HEALTH_CACHE_PATH)) if os.path.exists(HEALTH_CACHE_PATH) else {}
@@ -234,7 +263,7 @@ def create_llm_instance(provider_id, model, system_prompt, temperature=0.7,
     api_key_env = provider.get("api_key_env", "")
     api_base = provider.get("api_base", "")
 
-    api_key = os.getenv(api_key_env, "") if api_key_env else ""
+    api_key = provider.get("api_key", "") or (os.getenv(api_key_env, "") if api_key_env else "")
     if not api_key:
         if provider_key == "openai":
             api_key = OPENAI_API_KEY
@@ -447,8 +476,8 @@ def _build_model_checks(provider_ids_filter=None):
         api_key_env = provider.get("api_key_env", "")
         api_base = provider.get("api_base", "")
 
-        # Load API key from environment variable
-        api_key = os.getenv(api_key_env, "") if api_key_env else ""
+        # Load API key: provider JSON first, then env var fallback
+        api_key = provider.get("api_key", "") or (os.getenv(api_key_env, "") if api_key_env else "")
 
         # Special handling for legacy env vars
         if not api_key:
@@ -897,7 +926,7 @@ When you call the function, output ONLY the function call line, nothing else.
     # and inject results as context. The main LLM responds naturally without tool-calling.
     if pre_web_search_query:
         print(f"[web search] Pre-fetching for classifier query: {pre_web_search_query!r}")
-        pre_search_results = web_search(pre_web_search_query, count=5)
+        pre_search_results = web_search(pre_web_search_query, count=5, api_key=get_integration_key("BRAVE_SEARCH_API_KEY"))
         chat_history[0]["content"] += (
             f"\n\nWEB SEARCH RESULTS (pre-fetched for your response):\n{pre_search_results}\n"
             "Use these results to inform your answer where relevant. "
@@ -1048,9 +1077,6 @@ def experience_upload():
 
 
 import subprocess
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY")
 
 
 # Could pass audio_data directly to bypass file processing latency
@@ -1371,7 +1397,7 @@ def _fetch_provider_models(provider):
     """Fetch available models from a provider's /v1/models endpoint."""
     api_base = provider.get("api_base", "").rstrip("/")
     api_key_env = provider.get("api_key_env")
-    api_key = os.getenv(api_key_env) if api_key_env else None
+    api_key = provider.get("api_key", "") or (os.getenv(api_key_env) if api_key_env else None)
 
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -1391,6 +1417,14 @@ def _fetch_provider_models(provider):
     return [m for m in models if not any(kw in m.lower() for kw in NON_CHAT_KEYWORDS)]
 
 
+def _mask_provider(p):
+    p = dict(p)
+    key = p.pop("api_key", "")
+    p["key_set"] = bool(key)
+    p["key_last4"] = key[-4:] if key else ""
+    return p
+
+
 @llm_providers_bp.route("/api/llm-providers", methods=["GET", "POST"])
 def llm_providers_collection():
     """
@@ -1400,7 +1434,7 @@ def llm_providers_collection():
     providers = json.load(open(LLM_PROVIDERS_PATH, "r"))
 
     if request.method == "GET":
-        return jsonify(providers), 200
+        return jsonify([_mask_provider(p) for p in providers]), 200
 
     # POST
     data = request.get_json() or {}
@@ -1428,46 +1462,6 @@ def llm_providers_collection():
 
     print(f"\n\n------------------------\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\nReceived Request to Create New LLM Provider: {name}")
 
-    # Generate env var name and write API key to .env if provided
-    api_key_env = None
-    if api_key:
-        # Generate env var name: PROVIDER_ID_API_KEY (e.g., ANTHROPIC_API_KEY)
-        api_key_env = f"{provider_id.upper().replace('-', '_')}_API_KEY"
-
-        # Write to .env file
-        env_path = ".env"
-        try:
-            # Read existing .env content
-            env_content = ""
-            if os.path.exists(env_path):
-                with open(env_path, "r") as f:
-                    env_content = f.read()
-
-            # Check if env var already exists
-            if f"{api_key_env}=" in env_content:
-                # Update existing line
-                lines = env_content.split('\n')
-                lines = [line if not line.startswith(f"{api_key_env}=") else f"{api_key_env}={api_key}" for line in lines]
-                env_content = '\n'.join(lines)
-            else:
-                # Append new line
-                if env_content and not env_content.endswith('\n'):
-                    env_content += '\n'
-                env_content += f"{api_key_env}={api_key}\n"
-
-            # Write back to .env
-            with open(env_path, "w") as f:
-                f.write(env_content)
-
-            print(f"API key written to .env as {api_key_env}")
-
-            # Reload environment variables
-            load_dotenv(override=True)
-        except Exception as e:
-            print(f"Warning: Could not write to .env file: {e}")
-            # Continue without storing the key
-            api_key_env = None
-
     provider = {
         "id": provider_id,
         "name": name,
@@ -1476,14 +1470,13 @@ def llm_providers_collection():
         "models": models if isinstance(models, list) else [m.strip() for m in models.split(",")],
     }
 
-    # Only add api_key_env if a key was provided and successfully stored
-    if api_key_env:
-        provider["api_key_env"] = api_key_env
+    if api_key:
+        provider["api_key"] = api_key
 
     providers.append(provider)
     print("LLM Providers after modification: ", providers)
     json.dump(providers, open(LLM_PROVIDERS_PATH, "w"))
-    return jsonify(provider), 201
+    return jsonify(_mask_provider(provider)), 201
 
 
 @llm_providers_bp.route("/api/llm-providers/<provider_id>", methods=["PUT", "DELETE"])
@@ -1506,52 +1499,12 @@ def llm_provider_detail(provider_id):
     # PUT
     data = request.get_json() or {}
 
-    # Handle API key update
+    # Handle API key update — store directly in provider JSON, never write to .env
     if "api_key" in data and data["api_key"] is not None:
         api_key = data["api_key"]
-
         if api_key:
-            # Generate env var name
-            api_key_env = f"{provider_id.upper().replace('-', '_')}_API_KEY"
-
-            # Write to .env file
-            env_path = ".env"
-            try:
-                # Read existing .env content
-                env_content = ""
-                if os.path.exists(env_path):
-                    with open(env_path, "r") as f:
-                        env_content = f.read()
-
-                # Check if env var already exists
-                if f"{api_key_env}=" in env_content:
-                    # Update existing line
-                    lines = env_content.split('\n')
-                    lines = [line if not line.startswith(f"{api_key_env}=") else f"{api_key_env}={api_key}" for line in lines]
-                    env_content = '\n'.join(lines)
-                else:
-                    # Append new line
-                    if env_content and not env_content.endswith('\n'):
-                        env_content += '\n'
-                    env_content += f"{api_key_env}={api_key}\n"
-
-                # Write back to .env
-                with open(env_path, "w") as f:
-                    f.write(env_content)
-
-                print(f"API key updated in .env as {api_key_env}")
-
-                # Reload environment variables
-                load_dotenv(override=True)
-
-                # Update provider with env var name
-                provider["api_key_env"] = api_key_env
-            except Exception as e:
-                print(f"Warning: Could not write to .env file: {e}")
-        else:
-            # If api_key is empty string, remove the env var reference
-            if "api_key_env" in provider:
-                del provider["api_key_env"]
+            provider["api_key"] = api_key
+            print(f"API key stored in llm_providers.json for {provider_id}")
 
     # Update other fields (except api_key which we handle above)
     for field in ["name", "provider_key", "api_base", "models"]:
@@ -1560,7 +1513,7 @@ def llm_provider_detail(provider_id):
 
     print("LLM Providers after modification: ", providers)
     json.dump(providers, open(LLM_PROVIDERS_PATH, "w"))
-    return jsonify(provider), 200
+    return jsonify(_mask_provider(provider)), 200
 
 
 @llm_providers_bp.route("/api/llm-providers/<provider_id>/refresh-models", methods=["POST"])
@@ -1605,6 +1558,35 @@ def llm_options():
             "models": p["models"],
         }
     return jsonify({"options": options, "last_refreshed": _models_last_refreshed}), 200
+
+
+@llm_providers_bp.route("/api/integrations", methods=["GET"])
+def get_integrations():
+    data = _load_integrations()
+    result = {}
+    for k in INTEGRATION_KEYS:
+        val = data.get(k, "") or os.getenv(k, "")
+        result[k] = {
+            "set": bool(val),
+            "last4": val[-4:] if val else "",
+            "source": "file" if data.get(k) else ("env" if os.getenv(k) else "unset"),
+        }
+    return jsonify(result)
+
+
+@llm_providers_bp.route("/api/integrations", methods=["PUT"])
+def update_integrations():
+    updates = request.get_json() or {}
+    data = _load_integrations()
+    changed = []
+    for k in INTEGRATION_KEYS:
+        if k in updates and updates[k]:  # only save non-empty values
+            data[k] = updates[k]
+            changed.append(k)
+    if changed:
+        _save_integrations(data)
+        print(f"[integrations] Updated keys: {changed}")
+    return jsonify({"updated": changed})
 
 
 app.register_blueprint(llm_providers_bp)
@@ -1676,7 +1658,7 @@ AGORA_CONV_AI_BASE = "https://api.agora.io/api/conversational-ai-agent/v2/projec
 
 
 def _agora_auth_headers():
-    creds = _base64.b64encode(f"{AGORA_CUSTOMER_ID}:{AGORA_CUSTOMER_SECRET}".encode()).decode()
+    creds = _base64.b64encode(f"{get_integration_key('AGORA_CUSTOMER_ID')}:{get_integration_key('AGORA_CUSTOMER_SECRET')}".encode()).decode()
     return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
 
 
@@ -1688,7 +1670,8 @@ def get_voice_token():
     # Token generation requires agora-token-builder + AGORA_APP_CERTIFICATE.
     # In dev (no certificate), pass token=None — Agora allows this in test mode.
     # TODO: install agora-token-builder and generate a real token when certificate is set.
-    app_certificate = os.getenv("AGORA_APP_CERTIFICATE", "")
+    app_certificate = get_integration_key("AGORA_APP_CERTIFICATE")
+    agora_app_id = get_integration_key("AGORA_APP_ID")
     token = None
     if app_certificate:
         try:
@@ -1696,14 +1679,14 @@ def get_voice_token():
             from agora_token_builder import RtcTokenBuilder
             from agora_token_builder.RtcTokenBuilder import Role_Publisher
             token = RtcTokenBuilder.buildTokenWithUid(
-                AGORA_APP_ID, app_certificate,
+                agora_app_id, app_certificate,
                 channel, uid, Role_Publisher,
                 int(_time.time()) + 3600
             )
         except ImportError:
             print("[Voice] agora-token-builder not installed — using null token")
 
-    return jsonify({"appId": AGORA_APP_ID, "channel": channel, "uid": uid, "token": token})
+    return jsonify({"appId": agora_app_id, "channel": channel, "uid": uid, "token": token})
 
 
 @voice_bp.route("/api/voice/agent/start", methods=["POST"])
@@ -1730,14 +1713,15 @@ def start_voice_agent():
     # Generate RTC token for the agent's own UID so it can join the channel
     agent_uid = 999
     agent_token = ""
-    app_certificate = os.getenv("AGORA_APP_CERTIFICATE", "")
+    agora_app_id = get_integration_key("AGORA_APP_ID")
+    app_certificate = get_integration_key("AGORA_APP_CERTIFICATE")
     if app_certificate:
         try:
             import time as _time
             from agora_token_builder import RtcTokenBuilder
             from agora_token_builder.RtcTokenBuilder import Role_Publisher
             agent_token = RtcTokenBuilder.buildTokenWithUid(
-                AGORA_APP_ID, app_certificate,
+                agora_app_id, app_certificate,
                 channel, agent_uid, Role_Publisher,
                 int(_time.time()) + 3600
             )
@@ -1756,7 +1740,7 @@ def start_voice_agent():
                 "vendor": "deepgram",
                 "language": "en-US",
                 "params": {
-                    "api_key": os.getenv("DEEPGRAM_API_KEY", ""),
+                    "api_key": get_integration_key("DEEPGRAM_API_KEY"),
                 }
             },
             "llm": {
@@ -1772,7 +1756,7 @@ def start_voice_agent():
             "tts": {
                 "vendor": "cartesia",
                 "params": {
-                    "api_key": os.getenv("CARTESIA_API_KEY", ""),
+                    "api_key": get_integration_key("CARTESIA_API_KEY"),
                     "model_id": "sonic-2",
                     "voice_id": "f114a467-c40a-4db8-964d-aaba89cd08fa",
                 }
@@ -1782,7 +1766,7 @@ def start_voice_agent():
 
     print(f"[Voice] Starting agent for avatar {avatar_id} on channel {channel}")
     resp = requests.post(
-        f"{AGORA_CONV_AI_BASE}/{AGORA_APP_ID}/join",
+        f"{AGORA_CONV_AI_BASE}/{agora_app_id}/join",
         headers=_agora_auth_headers(),
         json=agent_payload,
         timeout=15,
@@ -1810,7 +1794,7 @@ def stop_voice_agent():
         return jsonify({"error": "agentId required"}), 400
 
     resp = requests.post(
-        f"{AGORA_CONV_AI_BASE}/{AGORA_APP_ID}/agents/{agent_id}/leave",
+        f"{AGORA_CONV_AI_BASE}/{get_integration_key('AGORA_APP_ID')}/agents/{agent_id}/leave",
         headers=_agora_auth_headers(),
         timeout=15,
     )

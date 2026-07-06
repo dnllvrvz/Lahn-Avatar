@@ -1312,7 +1312,7 @@ def RAG(avatar_rag_tools, query=None, translated=False, keywords_by_lang=None):
 
 
 # ---------- Web Search (Brave API) ----------
-def web_search(query: str, count: int = 5) -> str:
+def web_search(query: str, count: int = 5, api_key: str = None) -> str:
     """
     Search the web using Brave Search API.
     Brave automatically detects query language and returns matching results.
@@ -1320,11 +1320,13 @@ def web_search(query: str, count: int = 5) -> str:
     Args:
         query: The search query
         count: Number of results to return (default 5, max 50)
+        api_key: Optional API key override; falls back to BRAVE_SEARCH_API_KEY env var
 
     Returns:
         Formatted search results string for LLM consumption
     """
-    api_key = os.getenv("BRAVE_SEARCH_API_KEY")
+    if not api_key:
+        api_key = os.getenv("BRAVE_SEARCH_API_KEY")
     if not api_key:
         return "Web search unavailable: API key not configured."
 

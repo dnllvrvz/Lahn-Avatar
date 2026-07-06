@@ -62,6 +62,18 @@ export default function MultiAvatarChat() {
   const backendLogPreRef = useRef(null);
   const backendLogFirstLoadRef = useRef(true);
 
+  // --- Integrations state ---
+  const [integrationsExpanded, setIntegrationsExpanded] = useState(false);
+  const [integrations, setIntegrations] = useState({});
+  const [integrationEdits, setIntegrationEdits] = useState({});
+  const [integrationSaving, setIntegrationSaving] = useState(false);
+  const [integrationMsg, setIntegrationMsg] = useState("");
+
+  // --- LLM provider key editing state ---
+  const [llmProvidersList, setLlmProvidersList] = useState([]);
+  const [providerKeyEdits, setProviderKeyEdits] = useState({});
+  const [providerKeySaving, setProviderKeySaving] = useState({});
+
   // --- LLM provider management state ---
   const [providerFormOpen, setProviderFormOpen] = useState(false);
   const [providerSaving, setProviderSaving] = useState(false);
@@ -114,6 +126,18 @@ export default function MultiAvatarChat() {
         console.error("Error loading LLM options:", err);
       }
     })();
+
+    // Fetch integrations
+    fetch("/api/integrations")
+      .then(r => r.json())
+      .then(setIntegrations)
+      .catch(console.error);
+
+    // Fetch LLM providers list (includes key_set / key_last4)
+    fetch("/api/llm-providers")
+      .then(r => r.json())
+      .then(setLlmProvidersList)
+      .catch(console.error);
   }, []);
 
   // === Background health check (non-blocking) ===
@@ -330,6 +354,54 @@ export default function MultiAvatarChat() {
     }
   };
 
+  // === Integrations save handler ===
+  const handleSaveIntegrations = async () => {
+    setIntegrationSaving(true);
+    setIntegrationMsg("");
+    try {
+      const resp = await fetch("/api/integrations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(integrationEdits),
+      });
+      const result = await resp.json();
+      setIntegrationMsg(result.updated?.length ? `Saved: ${result.updated.join(", ")}` : "Nothing to save (fields were empty)");
+      setIntegrationEdits({});
+      const fresh = await fetch("/api/integrations").then(r => r.json());
+      setIntegrations(fresh);
+    } catch (e) {
+      setIntegrationMsg("Error saving keys");
+    } finally {
+      setIntegrationSaving(false);
+    }
+  };
+
+  // === LLM provider key save handler ===
+  const handleSaveProviderKey = async (providerId) => {
+    const newKey = providerKeyEdits[providerId];
+    if (!newKey) return;
+    setProviderKeySaving(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const resp = await fetch(`/api/llm-providers/${providerId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: newKey }),
+      });
+      if (!resp.ok) throw new Error("Failed to update key");
+      await resp.json();
+      setProviderKeyEdits(prev => ({ ...prev, [providerId]: "" }));
+      // Refresh providers list to reflect updated key status
+      const optResp = await fetch("/api/llm-providers");
+      if (optResp.ok) {
+        const providers = await optResp.json();
+        setLlmProvidersList(providers);
+      }
+    } catch (e) {
+      console.error("Error saving provider key:", e);
+    } finally {
+      setProviderKeySaving(prev => ({ ...prev, [providerId]: false }));
+    }
+  };
 
   const [topics] = useState([
     'The River should have legal personhood',
@@ -960,6 +1032,130 @@ export default function MultiAvatarChat() {
                   ? <>Model list last refreshed: <span className="text-stone-500">{new Date(llmOptionsLastRefreshed).toLocaleString()}</span></>
                   : 'Model list: not yet refreshed this session'}
               </p>
+
+              {/* Per-provider API key editing */}
+              {llmProvidersList.filter(p => !p.hidden).length > 0 && (
+                <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm">Provider API Keys</label>
+                  {llmProvidersList.filter(p => !p.hidden).map(p => (
+                    <div key={p.id} className="flex flex-wrap items-center gap-2">
+                      <span className="font-poetic text-stone-700 text-xs w-28 shrink-0">{p.name}</span>
+                      <span className="text-xs">
+                        {p.key_set
+                          ? <span className="text-green-600">set (••••{p.key_last4})</span>
+                          : <span className="text-amber-600">no key</span>}
+                      </span>
+                      <input
+                        type="password"
+                        className="flex-1 min-w-[140px] p-1 rounded border bg-white font-mono text-xs"
+                        placeholder="Enter new key to update"
+                        value={providerKeyEdits[p.id] || ""}
+                        onChange={e => setProviderKeyEdits(prev => ({ ...prev, [p.id]: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="font-poetic text-xs"
+                        disabled={!providerKeyEdits[p.id] || providerKeySaving[p.id]}
+                        onClick={() => handleSaveProviderKey(p.id)}
+                      >
+                        {providerKeySaving[p.id] ? "Saving..." : "Update"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
+
+        {/* Collapsible Integrations Section */}
+        <div className="w-full">
+          <button
+            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+            onClick={() => setIntegrationsExpanded(!integrationsExpanded)}
+          >
+            <span className="text-lg">{integrationsExpanded ? '▼' : '▶'}</span>
+            <span className="font-semibold">Integrations</span>
+          </button>
+
+          {integrationsExpanded && (
+            <div className="mt-2 space-y-3">
+              {/* Web Search group */}
+              <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
+                <label className="block font-poetic text-stone-800 font-semibold text-sm">Web Search</label>
+                {[
+                  { key: "BRAVE_SEARCH_API_KEY", label: "Brave Search API key" },
+                ].map(({ key, label }) => {
+                  const info = integrations[key] || {};
+                  return (
+                    <div key={key} className="flex flex-wrap items-center gap-2">
+                      <span className="font-poetic text-stone-700 text-xs w-40 shrink-0">{label}</span>
+                      <span className="text-xs">
+                        {info.set
+                          ? <span className="text-green-600">set (••••{info.last4})</span>
+                          : <span className="text-red-500">not set</span>}
+                      </span>
+                      <input
+                        type="password"
+                        className="flex-1 min-w-[160px] p-1 rounded border bg-white font-mono text-xs"
+                        placeholder="Enter new value to update"
+                        value={integrationEdits[key] || ""}
+                        onChange={e => setIntegrationEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Voice Lab group */}
+              <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
+                <label className="block font-poetic text-stone-800 font-semibold text-sm">Voice Lab</label>
+                {[
+                  { key: "AGORA_APP_ID", label: "Agora App ID" },
+                  { key: "AGORA_APP_CERTIFICATE", label: "Agora App Certificate" },
+                  { key: "AGORA_CUSTOMER_ID", label: "Agora Customer ID" },
+                  { key: "AGORA_CUSTOMER_SECRET", label: "Agora Customer Secret" },
+                  { key: "DEEPGRAM_API_KEY", label: "Deepgram API key" },
+                  { key: "CARTESIA_API_KEY", label: "Cartesia API key" },
+                ].map(({ key, label }) => {
+                  const info = integrations[key] || {};
+                  return (
+                    <div key={key} className="flex flex-wrap items-center gap-2">
+                      <span className="font-poetic text-stone-700 text-xs w-40 shrink-0">{label}</span>
+                      <span className="text-xs">
+                        {info.set
+                          ? <span className="text-green-600">set (••••{info.last4})</span>
+                          : <span className="text-red-500">not set</span>}
+                      </span>
+                      <input
+                        type="password"
+                        className="flex-1 min-w-[160px] p-1 rounded border bg-white font-mono text-xs"
+                        placeholder="Enter new value to update"
+                        value={integrationEdits[key] || ""}
+                        onChange={e => setIntegrationEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Save button */}
+              <div className="flex items-center gap-3">
+                <Button
+                  className="font-poetic"
+                  onClick={handleSaveIntegrations}
+                  disabled={integrationSaving || Object.keys(integrationEdits).length === 0}
+                >
+                  {integrationSaving ? "Saving..." : "Save all changes"}
+                </Button>
+                {integrationMsg && (
+                  <span className="text-xs text-stone-600">{integrationMsg}</span>
+                )}
+              </div>
             </div>
           )}
         </div>

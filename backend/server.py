@@ -856,10 +856,13 @@ def chat():
         print("Obtaining information for the LLM...")
 
     # === Sensor Tool Function Schema ===
+    # NOTE: web_search is intentionally NOT listed as a callable function here.
+    # Web search is handled proactively by the pre-classifier above (open-source models
+    # do not tool-call reliably enough to be trusted with it at inference time).
+    # Only analyze_sensor_data is kept as a model-invoked tool, because the always-fetch
+    # snapshot already covers simple queries and complex trend analysis genuinely requires
+    # the model to decide when to invoke the tool.
     sensor_config = avatar_sensor_tools.get(avatar_id)
-
-    # === Build unified function schema ===
-    # Both functions are listed together so model knows all available options
 
     if sensor_config:
         print("Adding sensor tool function schema to prompt...")
@@ -867,30 +870,15 @@ def chat():
         import json as json_module
         escaped_description = json_module.dumps(sensor_description, ensure_ascii=False)
 
-        # Sensor AND web search both available for this avatar
         function_schema = f"""
-FUNCTIONS:
-You have access to these functions. Call them ONLY when explicitly requested.
+FUNCTION:
+You have access to this function. Call it ONLY when needed.
 
-1. analyze_sensor_data(user_query="your question")
-   - MUST call this when user asks about current sensor readings (temperature, pH, water quality, etc.)
+analyze_sensor_data(user_query="your question")
+   - Call this for trend analysis or questions requiring historical sensor data.
+   - Do NOT call this for simple current readings — those are already in the SENSOR SNAPSHOT above.
 
-2. web_search(query="your search query")
-   - MUST call this when user says "search the web", "look up on the internet", or explicitly requests information from the web/internet
-
-When you call a function, output ONLY the function call line, nothing else.
-"""
-        chat_history[0]["content"] += function_schema
-    else:
-        # No sensor - only web search available
-        function_schema = """
-FUNCTIONS:
-You have access to this function. Call it ONLY when explicitly requested.
-
-1. web_search(query="your search query")
-   - MUST call this when user says "search the web", "look up on the internet", or explicitly requests information from the web/internet
-
-When you call a function, output ONLY the function call line, nothing else.
+When you call the function, output ONLY the function call line, nothing else.
 """
         chat_history[0]["content"] += function_schema
 
@@ -903,8 +891,9 @@ When you call a function, output ONLY the function call line, nothing else.
             chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
 
     # === Pre-fetch web search results (classifier-driven) ===
-    # If the intent classifier detected a need for live data, fetch now and inject
-    # into the system prompt so the main LLM never needs to emit a tool call.
+    # Open-source models do not reliably emit tool calls, so rather than instructing the
+    # main LLM to call web_search() and hoping it complies, we classify intent beforehand
+    # and inject results as context. The main LLM responds naturally without tool-calling.
     if pre_web_search_query:
         print(f"[web search] Pre-fetching for classifier query: {pre_web_search_query!r}")
         pre_search_results = web_search(pre_web_search_query, count=5)
@@ -944,50 +933,11 @@ When you call a function, output ONLY the function call line, nothing else.
         )
         return jsonify({"reply": chat_completion_2.text.replace("*", "")})
 
-    if "web_search" in response:
-        print("Performing web search...")
-        # Extract query: keyword arg, JSON, or positional arg formats
-        # web_search(query="..."), "query": "...", web_search("...")
-        match = (re.search(r'query\s*[:=]\s*["\']([^"\']+)["\']', response) or
-                 re.search(r'web_search\s*\(\s*["\']([^"\']+)["\']', response))
-        query = match.group(1) if match else ""
-
-        print(f"Web search query: {query}")
-
-        if query:
-            # Brave automatically detects query language - no need for explicit language detection
-            search_results = web_search(query, count=5)
-            print(f"Web search results: {search_results[:200]}...")
-
-            results_msg = (
-                "\nWEB SEARCH RESULTS - you successfully searched the web and found this information:\n"
-                + search_results
-                + "\n\nNow answer the user's original question using these results. Respond conversationally as the Lahn avatar. Use the same language as the user."
-            )
-
-            # Create a clean system prompt WITHOUT function schema for the follow-up
-            clean_system_prompt = system_prompt_
-
-            # Create a clean user message without RAG/function instructions
-            original_user_msg = chat_history[-1]["content"].split("<End of User message>")[0].strip()
-
-            # Build clean message history for follow-up
-            clean_messages = [
-                {"role": "system", "content": clean_system_prompt + results_msg},
-                {"role": "user", "content": original_user_msg}
-            ]
-
-            chat_completion_2 = llm.complete(clean_messages)
-            response_2 = chat_completion_2.text
-
-            if "web_search" in response_2:
-                print("Duplicate web_search call, using results directly")
-                response_2 = f"Web search results for '{query}':\n{search_results}"
-
-            response_2 = response_2.replace("*", "")
-            print("Avatar response after web search:", response_2)
-
-            return jsonify({"reply": response_2})
+    # NOTE: There is intentionally no post-response web_search detection here.
+    # Web search is handled entirely by the pre-classifier in inject_rag_context above.
+    # Results are injected into context before the main LLM call, so the model never
+    # needs to emit a tool call. This is the deliberate accommodation for open-source
+    # models that do not tool-call as reliably as GPT-class models.
 
     response = response.replace("*", "")
 

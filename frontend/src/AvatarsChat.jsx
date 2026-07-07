@@ -1033,13 +1033,32 @@ export default function MultiAvatarChat() {
                   : 'Model list: not yet refreshed this session'}
               </p>
 
-              {/* Per-provider API key editing */}
+            </div>
+          )}
+        </div>
+
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
+
+        {/* Collapsible API Keys Section */}
+        <div className="w-full">
+          <button
+            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+            onClick={() => setIntegrationsExpanded(!integrationsExpanded)}
+          >
+            <span className="text-lg">{integrationsExpanded ? '▼' : '▶'}</span>
+            <span className="font-semibold">API Keys</span>
+          </button>
+
+          {integrationsExpanded && (
+            <div className="mt-2 space-y-3">
+              {/* LLM Providers group */}
               {llmProvidersList.filter(p => !p.hidden).length > 0 && (
                 <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
-                  <label className="block font-poetic text-stone-800 font-semibold text-sm">Provider API Keys</label>
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm">LLM Providers</label>
                   {llmProvidersList.filter(p => !p.hidden).map(p => (
                     <div key={p.id} className="flex flex-wrap items-center gap-2">
-                      <span className="font-poetic text-stone-700 text-xs w-28 shrink-0">{p.name}</span>
+                      <span className="font-poetic text-stone-700 text-xs w-40 shrink-0">{p.name}</span>
                       <span className="text-xs">
                         {p.key_set
                           ? <span className="text-green-600">set (••••{p.key_last4})</span>
@@ -1047,7 +1066,7 @@ export default function MultiAvatarChat() {
                       </span>
                       <input
                         type="password"
-                        className="flex-1 min-w-[140px] p-1 rounded border bg-white font-mono text-xs"
+                        className="flex-1 min-w-[160px] p-1 rounded border bg-white font-mono text-xs"
                         placeholder="Enter new key to update"
                         value={providerKeyEdits[p.id] || ""}
                         onChange={e => setProviderKeyEdits(prev => ({ ...prev, [p.id]: e.target.value }))}
@@ -1065,25 +1084,7 @@ export default function MultiAvatarChat() {
                   ))}
                 </div>
               )}
-            </div>
-          )}
-        </div>
 
-        {/* Horizontal separator */}
-        <hr className="w-full border-stone-300" />
-
-        {/* Collapsible Integrations Section */}
-        <div className="w-full">
-          <button
-            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
-            onClick={() => setIntegrationsExpanded(!integrationsExpanded)}
-          >
-            <span className="text-lg">{integrationsExpanded ? '▼' : '▶'}</span>
-            <span className="font-semibold">Integrations</span>
-          </button>
-
-          {integrationsExpanded && (
-            <div className="mt-2 space-y-3">
               {/* Web Search group */}
               <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
                 <label className="block font-poetic text-stone-800 font-semibold text-sm">Web Search</label>
@@ -1143,7 +1144,7 @@ export default function MultiAvatarChat() {
                 })}
               </div>
 
-              {/* Save button */}
+              {/* Save integration keys */}
               <div className="flex items-center gap-3">
                 <Button
                   className="font-poetic"

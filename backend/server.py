@@ -1419,7 +1419,8 @@ def _fetch_provider_models(provider):
 
 def _mask_provider(p):
     p = dict(p)
-    key = p.pop("api_key", "")
+    # Check JSON-stored key first, then env var fallback (mirrors create_llm_instance)
+    key = p.pop("api_key", "") or (os.getenv(p.get("api_key_env", ""), "") if p.get("api_key_env") else "")
     p["key_set"] = bool(key)
     p["key_last4"] = key[-4:] if key else ""
     return p

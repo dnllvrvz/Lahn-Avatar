@@ -354,52 +354,48 @@ export default function MultiAvatarChat() {
     }
   };
 
-  // === Integrations save handler ===
+  // === API Keys save handler (integrations + LLM provider keys) ===
   const handleSaveIntegrations = async () => {
     setIntegrationSaving(true);
     setIntegrationMsg("");
     try {
-      const resp = await fetch("/api/integrations", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(integrationEdits),
-      });
-      const result = await resp.json();
-      setIntegrationMsg(result.updated?.length ? `Saved: ${result.updated.join(", ")}` : "Nothing to save (fields were empty)");
-      setIntegrationEdits({});
-      const fresh = await fetch("/api/integrations").then(r => r.json());
-      setIntegrations(fresh);
+      const saved = [];
+
+      // Save integration keys (Brave, Agora, Deepgram, Cartesia)
+      if (Object.keys(integrationEdits).length > 0) {
+        const resp = await fetch("/api/integrations", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(integrationEdits),
+        });
+        const result = await resp.json();
+        if (result.updated?.length) saved.push(...result.updated);
+        setIntegrationEdits({});
+        const fresh = await fetch("/api/integrations").then(r => r.json());
+        setIntegrations(fresh);
+      }
+
+      // Save LLM provider keys
+      const providerUpdates = Object.entries(providerKeyEdits).filter(([, v]) => v);
+      await Promise.all(providerUpdates.map(async ([providerId, key]) => {
+        const resp = await fetch(`/api/llm-providers/${providerId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: key }),
+        });
+        if (resp.ok) saved.push(providerId);
+      }));
+      if (providerUpdates.length > 0) {
+        setProviderKeyEdits({});
+        const optResp = await fetch("/api/llm-providers");
+        if (optResp.ok) setLlmProvidersList(await optResp.json());
+      }
+
+      setIntegrationMsg(saved.length ? `Saved: ${saved.join(", ")}` : "Nothing to save (fields were empty)");
     } catch (e) {
       setIntegrationMsg("Error saving keys");
     } finally {
       setIntegrationSaving(false);
-    }
-  };
-
-  // === LLM provider key save handler ===
-  const handleSaveProviderKey = async (providerId) => {
-    const newKey = providerKeyEdits[providerId];
-    if (!newKey) return;
-    setProviderKeySaving(prev => ({ ...prev, [providerId]: true }));
-    try {
-      const resp = await fetch(`/api/llm-providers/${providerId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: newKey }),
-      });
-      if (!resp.ok) throw new Error("Failed to update key");
-      await resp.json();
-      setProviderKeyEdits(prev => ({ ...prev, [providerId]: "" }));
-      // Refresh providers list to reflect updated key status
-      const optResp = await fetch("/api/llm-providers");
-      if (optResp.ok) {
-        const providers = await optResp.json();
-        setLlmProvidersList(providers);
-      }
-    } catch (e) {
-      console.error("Error saving provider key:", e);
-    } finally {
-      setProviderKeySaving(prev => ({ ...prev, [providerId]: false }));
     }
   };
 
@@ -1071,15 +1067,6 @@ export default function MultiAvatarChat() {
                         value={providerKeyEdits[p.id] || ""}
                         onChange={e => setProviderKeyEdits(prev => ({ ...prev, [p.id]: e.target.value }))}
                       />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="font-poetic text-xs"
-                        disabled={!providerKeyEdits[p.id] || providerKeySaving[p.id]}
-                        onClick={() => handleSaveProviderKey(p.id)}
-                      >
-                        {providerKeySaving[p.id] ? "Saving..." : "Update"}
-                      </Button>
                     </div>
                   ))}
                 </div>
@@ -1149,7 +1136,7 @@ export default function MultiAvatarChat() {
                 <Button
                   className="font-poetic"
                   onClick={handleSaveIntegrations}
-                  disabled={integrationSaving || Object.keys(integrationEdits).length === 0}
+                  disabled={integrationSaving || (Object.keys(integrationEdits).length === 0 && Object.values(providerKeyEdits).every(v => !v))}
                 >
                   {integrationSaving ? "Saving..." : "Save all changes"}
                 </Button>

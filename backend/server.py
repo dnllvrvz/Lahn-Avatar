@@ -62,6 +62,18 @@ def handle_exception(e):
 UPLOAD_DIR = "data/uploaded_experiences"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+DEBUG_LOG_DIR = "debug"
+os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
+
+def debug_log(avatar_id, section, content):
+    """Append a timestamped debug entry to debug/<avatar_id>.log."""
+    from datetime import datetime as _dt
+    path = os.path.join(DEBUG_LOG_DIR, f"{avatar_id}.log")
+    ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    separator = "=" * 60
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"\n{separator}\n[{ts}] [{section}]\n{separator}\n{content}\n")
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GWDG_API_KEY = os.getenv("GWDG_API_KEY")
 GWDG_API_BASE = os.getenv("GWDG_API_BASE")
@@ -884,6 +896,8 @@ def chat():
     )
     if rag_injected:
         print("Obtaining information for the LLM...")
+        # Log the injected context (last user message now contains the RAG context)
+        debug_log(avatar_id, "CHAT/RAG_CONTEXT", chat_history[-1]["content"])
 
     # === Sensor Tool Function Schema ===
     # NOTE: web_search is intentionally NOT listed as a callable function here.
@@ -944,6 +958,8 @@ When you call the function, output ONLY the function call line, nothing else.
     response = chat_completion.text
 
     print("\nAvatar response: ", response)
+    debug_log(avatar_id, "CHAT/LLM_RESPONSE", response)
+    debug_log(avatar_id, "CHAT/FULL_PROMPT", json.dumps(messages_to_send, ensure_ascii=False, indent=2))
 
     sensor_response, sensor_handled = handle_sensor_tool_call(
         response, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
@@ -1865,6 +1881,7 @@ def voice_chat_completions():
             if rag_context:
                 chat_history[-1]["content"] += f" <End of User message>. <<Context from knowledge base: {rag_context}>>"
                 print("[Voice] RAG context injected (direct keyword extraction)")
+                debug_log(avatar_id, "VOICE/RAG_CONTEXT", rag_context)
     except Exception as e:
         print(f"[Voice] RAG failed (continuing without context): {e}")
 
@@ -1894,6 +1911,8 @@ def voice_chat_completions():
         print("[Voice] Sensor analysis complete")
 
     print(f"[Voice] Response: {response_text[:120]}...")
+    debug_log(avatar_id, "VOICE/LLM_RESPONSE", response_text)
+    debug_log(avatar_id, "VOICE/FULL_PROMPT", json.dumps(chat_history, ensure_ascii=False, indent=2))
 
     # Stream back as SSE (single chunk — Agora accepts this)
     response_id = str(_uuid.uuid4())

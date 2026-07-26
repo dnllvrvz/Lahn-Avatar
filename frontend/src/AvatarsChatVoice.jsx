@@ -204,8 +204,8 @@ export default function AvatarsChatVoice() {
     return () => { disconnectRef.current(true); };
   }, []);
 
-  const userRippleScale = Math.min(1 + userVolume * 2, 1.6);
-  const avatarRippleScale = Math.min(1 + avatarVolume * 2, 1.6);
+  const userRippleScale = 1 + userVolume * 2;
+  const avatarRippleScale = 1 + avatarVolume * 2;
   const selectedAvatar = avatars.find(a => a.id === selectedAvatarId);
 
   return (

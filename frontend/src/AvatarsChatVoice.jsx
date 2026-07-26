@@ -44,11 +44,9 @@ export default function AvatarsChatVoice() {
 
   // Poll mic volume for user ripple
   const startVolumePolling = useCallback((micTrack) => {
-    const NOISE_FLOOR = 0.08; // gate out ambient noise — only genuine speech moves the bubble
     const poll = () => {
       if (!micTrack) return;
-      const raw = micTrack.getVolumeLevel?.() ?? 0;
-      setUserVolume(raw > NOISE_FLOOR ? (raw - NOISE_FLOOR) / (1 - NOISE_FLOOR) : 0);
+      setUserVolume((micTrack.getVolumeLevel?.() ?? 0));
       volumeRafRef.current = requestAnimationFrame(poll);
     };
     poll();

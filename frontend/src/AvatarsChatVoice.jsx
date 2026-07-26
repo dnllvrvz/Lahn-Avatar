@@ -235,19 +235,8 @@ export default function AvatarsChatVoice() {
         </p>
       )}
 
-      {/* Ripple visualisers */}
-      {/* End button — above the orbs so the ripple animation never covers it */}
-      {isConnected && (
-        <Button
-          onClick={() => disconnect()}
-          disabled={isDisconnecting}
-          className="bg-red-600 hover:bg-red-700 text-white rounded-full px-8 py-3 text-base font-poetic disabled:opacity-60"
-        >
-          {isDisconnecting ? "Ending…" : "End Conversation"}
-        </Button>
-      )}
-
-      <div className="relative flex flex-col items-center gap-16 my-4">
+      {/* Orbs — isolated in their own block, never overlap buttons below */}
+      <div className="flex flex-col items-center gap-16 my-4 overflow-hidden">
 
         {/* User mic ripple */}
         <div className="relative flex items-center justify-center w-32 h-32">
@@ -282,14 +271,22 @@ export default function AvatarsChatVoice() {
         {STATUS_LABEL[status] ?? ""}
       </p>
 
-      {/* Start button — only shown when not connected */}
-      {!isConnected && (
+      {/* Start / End button — always below the orbs */}
+      {!isConnected ? (
         <Button
           onClick={connect}
           disabled={status === "connecting" || !selectedAvatarId}
           className="bg-amber-600 hover:bg-amber-700 text-white rounded-full px-8 py-3 text-base font-poetic"
         >
           {status === "connecting" ? "Connecting…" : "🎤 Start Conversation"}
+        </Button>
+      ) : (
+        <Button
+          onClick={() => disconnect()}
+          disabled={isDisconnecting}
+          className="bg-red-600 hover:bg-red-700 text-white rounded-full px-8 py-3 text-base font-poetic disabled:opacity-60"
+        >
+          {isDisconnecting ? "Ending…" : "End Conversation"}
         </Button>
       )}
 

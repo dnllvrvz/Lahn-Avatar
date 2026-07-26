@@ -238,7 +238,7 @@ export default function AvatarsChatVoice() {
       )}
 
       {/* Orbs — isolated in their own block, never overlap buttons below */}
-      <div className="flex flex-col items-center gap-16 my-4 overflow-hidden">
+      <div className="flex flex-col items-center gap-16 my-4">
 
         {/* User mic ripple */}
         <div className="relative flex items-center justify-center w-32 h-32">

@@ -204,8 +204,8 @@ export default function AvatarsChatVoice() {
     return () => { disconnectRef.current(true); };
   }, []);
 
-  const userRippleScale = 1 + userVolume * 2;
-  const avatarRippleScale = 1 + avatarVolume * 2;
+  const userRippleScale = Math.min(1 + userVolume * 2, 1.6);
+  const avatarRippleScale = Math.min(1 + avatarVolume * 2, 1.6);
   const selectedAvatar = avatars.find(a => a.id === selectedAvatarId);
 
   return (
@@ -241,7 +241,7 @@ export default function AvatarsChatVoice() {
         {/* User mic ripple */}
         <div className="relative flex items-center justify-center w-32 h-32">
           <motion.div
-            className="absolute w-32 h-32 rounded-full bg-lime-300"
+            className="absolute w-20 h-20 rounded-full bg-lime-300"
             animate={{ scale: isConnected ? userRippleScale : 1, opacity: isConnected ? 0.55 : 0.15 }}
             transition={{ duration: 0.08 }}
           />
@@ -253,7 +253,7 @@ export default function AvatarsChatVoice() {
         {/* Avatar audio ripple */}
         <div className="relative flex items-center justify-center w-48 h-48">
           <motion.div
-            className="absolute w-48 h-48 rounded-full bg-cyan-300"
+            className="absolute w-28 h-28 rounded-full bg-cyan-300"
             animate={{
               scale: status === "speaking" ? avatarRippleScale : 1,
               opacity: status === "speaking" ? 0.55 : 0.1,

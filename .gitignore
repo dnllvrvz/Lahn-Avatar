@@ -35,3 +35,4 @@ backend/constraints.txt
 .claude/
 backend/llm_health_cache.json
 backend/debug/
+backend/avatars_history/

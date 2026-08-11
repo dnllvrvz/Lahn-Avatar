@@ -65,6 +65,25 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 DEBUG_LOG_DIR = "debug"
 os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
 
+# Timestamped snapshots of avatars.json, taken before every write. Recovery
+# path for accidental default wipes (ISSUES.md 13): copy a snapshot back over
+# avatars.json and restart.
+AVATARS_HISTORY_DIR = "avatars_history"
+AVATARS_HISTORY_KEEP = 100
+os.makedirs(AVATARS_HISTORY_DIR, exist_ok=True)
+
+def save_avatars(avatars, reason=""):
+    """Single write path for avatars.json: snapshot the current state, then write."""
+    import shutil
+    if os.path.exists(avatars_path):
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        shutil.copy2(avatars_path, os.path.join(AVATARS_HISTORY_DIR, f"avatars-{ts}.json"))
+        snapshots = sorted(os.listdir(AVATARS_HISTORY_DIR))
+        for old in snapshots[:-AVATARS_HISTORY_KEEP]:
+            os.remove(os.path.join(AVATARS_HISTORY_DIR, old))
+    json.dump(avatars, open(avatars_path, "w"))
+    print(f"[avatars] saved ({reason or 'unspecified'}) — snapshot in {AVATARS_HISTORY_DIR}/")
+
 def debug_log(avatar_id, section, content):
     """Append a timestamped debug entry to debug/<avatar_id>.log."""
     from datetime import datetime as _dt
@@ -1388,7 +1407,7 @@ def avatars_collection():
 
     avatars.append(avatar)
     print("Avatars after modification: ", avatars)
-    json.dump(avatars, open(avatars_path, "w"))
+    save_avatars(avatars, reason=f"create avatar {next_id}")
     avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
     # Frontend expects the created avatar object back
     return jsonify(avatar), 201
@@ -1423,7 +1442,7 @@ def avatar_detail(avatar_id):
             avatar["ragLanguages"] = ["en", "de"]  # Default
 
     print("Avatars after modification: ", avatars)
-    json.dump(avatars, open(avatars_path, "w"))
+    save_avatars(avatars, reason=f"update avatar {avatar_id}")
     avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
     return jsonify(avatar), 200
 
@@ -1445,7 +1464,7 @@ def avatar_llm_defaults(avatar_id):
         if "llmDefaults" in avatar:
             del avatar["llmDefaults"]
             print(f"\n=== Cleared Admin defaults for avatar '{avatar_name}' (id: {avatar_id}) ===\n")
-        json.dump(avatars, open(avatars_path, "w"))
+        save_avatars(avatars, reason=f"clear llmDefaults for avatar {avatar_id}")
         return jsonify(avatar), 200
 
     # POST - save defaults
@@ -1483,7 +1502,7 @@ def avatar_llm_defaults(avatar_id):
             llm_defaults[task] = cfg
 
     avatar["llmDefaults"] = llm_defaults
-    json.dump(avatars, open(avatars_path, "w"))
+    save_avatars(avatars, reason=f"save llmDefaults for avatar {avatar_id}")
     print(f"\n=== Saved Admin defaults for avatar '{avatar.get('name', avatar_id)}' (id: {avatar_id}) ===")
     print(f"{llm_defaults}")
     print("=================================\n")

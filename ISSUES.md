@@ -164,7 +164,11 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
     2026-08-11: llm-defaults POST now merges instead of replacing (partial
     payloads can no longer wipe other tasks), and the global chat fallback moved
     off creditless OpenRouter to gwdg — a wipe now degrades instead of 500ing.
-    Toggle-confirmation and write auditing still open if it recurs.
+    HISTORY PERSISTENCE ADDED (2026-08-11): save_avatars() is the single write
+    path for avatars.json — snapshots the previous state to avatars_history/
+    (timestamped, last 100 kept) with a logged reason before every write.
+    Recovery = copy a snapshot back and restart. The next wipe will identify
+    its writer via the reason log. Toggle-confirmation still open.
 
 14. **Voice endpoint buffers the full LLM response before streaming** (2026-08-11)
     IMPLEMENTED 2026-08-11: LLM.stream_deltas() (SSE for gwdg/openai, NDJSON for

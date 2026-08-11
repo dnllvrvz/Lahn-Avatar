@@ -28,6 +28,9 @@ export default function AvatarsChatVoice() {
 
   const [latencyExpanded, setLatencyExpanded] = useState(false);
   const [lastLatency, setLastLatency] = useState(null); // { perceivedMs, timings }
+  // Experimental: stream LLM sentences to Agora (TTS starts sooner). Off by
+  // default — Agora-side chunk handling still being ironed out (ISSUES.md 14).
+  const [streamingEnabled, setStreamingEnabled] = useState(false);
 
   const clientRef = useRef(null);
   const micTrackRef = useRef(null);
@@ -236,6 +239,7 @@ export default function AvatarsChatVoice() {
           avatarId: selectedAvatarId,
           channel,
           userUid: uid || 0,
+          streaming: streamingEnabled,
         }),
       });
 
@@ -293,6 +297,18 @@ export default function AvatarsChatVoice() {
         <p className="font-poetic text-stone-500 text-sm">
           Speaking with: <span className="text-stone-700 font-semibold">{selectedAvatar.name}</span>
         </p>
+      )}
+
+      {/* Streaming toggle — applies to the next conversation start */}
+      {!isConnected && (
+        <label className="flex items-center gap-2 font-poetic text-stone-500 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={streamingEnabled}
+            onChange={e => setStreamingEnabled(e.target.checked)}
+          />
+          Streaming responses (experimental — speech starts sooner)
+        </label>
       )}
 
       {/* Latency Analysis — directly under the avatar selection */}

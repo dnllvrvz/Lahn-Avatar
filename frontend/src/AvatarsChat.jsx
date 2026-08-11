@@ -918,9 +918,12 @@ export default function MultiAvatarChat() {
 
           {llmConfigExpanded && (
             <div className="mt-2 space-y-3">
-              {/* Chat provider and model */}
+              {/* ── Text ── */}
+              <p className="font-poetic text-stone-400 text-xs font-semibold uppercase tracking-wider pt-1">Text</p>
+
+              {/* Text chat provider and model */}
               <div className="p-3 rounded-lg border bg-stone-50/60 space-y-2">
-                  <label className="block font-poetic text-stone-800 font-semibold text-sm">Chat</label>
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm">Text Chat</label>
                   <div className="flex flex-wrap items-center gap-2">
                       <select
                           className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
@@ -996,44 +999,8 @@ export default function MultiAvatarChat() {
                   </div>
               </div>
 
-              {/* Text Query provider and model */}
-              <div className="p-3 rounded-lg border bg-stone-50/60">
-                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Text Query</label>
-                  <p className="font-poetic text-stone-500 text-xs mb-2">
-                    Smaller models are faster — this model only generates retrieval keywords, so a small model (e.g. 8B) keeps responses quick.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                      <select
-                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
-                          value={currentUserTextQueryProvider}
-                          onChange={e => {
-                              setCurrentUserTextQueryProvider(e.target.value);
-                              setCurrentUserTextQueryModel(llmOptions[e.target.value].models[0]);
-                          }}
-                      >
-                          {Object.keys(llmOptions).map(key => (
-                              <option key={key} value={key}>{llmOptions[key].name}</option>
-                          ))}
-                      </select>
-                      <select
-                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
-                          value={currentUserTextQueryModel}
-                          onChange={e => setCurrentUserTextQueryModel(e.target.value)}
-                      >
-                          {llmOptions[currentUserTextQueryProvider]?.models.filter(model =>
-                              modelHealth[model] !== 'offline' || model === adminDefaultModels.textQuery
-                          ).map(model => {
-                              const status = modelHealth[model];
-                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
-                              return (
-                                  <option key={model} value={model} disabled={status === 'offline'}>
-                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
-                                  </option>
-                              );
-                          })}
-                      </select>
-                  </div>
-              </div>
+              {/* ── Voice ── */}
+              <p className="font-poetic text-stone-400 text-xs font-semibold uppercase tracking-wider pt-2">Voice</p>
 
               {/* Voice Chat provider and model — response generation for voice sessions */}
               <div className="p-3 rounded-lg border bg-stone-50/60">
@@ -1061,6 +1028,83 @@ export default function MultiAvatarChat() {
                       >
                           {llmOptions[currentUserVoiceChatProvider]?.models.filter(model =>
                               modelHealth[model] !== 'offline' || model === adminDefaultModels.voiceChat
+                          ).map(model => {
+                              const status = modelHealth[model];
+                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
+                              return (
+                                  <option key={model} value={model} disabled={status === 'offline'}>
+                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
+                                  </option>
+                              );
+                          })}
+                      </select>
+                  </div>
+              </div>
+
+              {/* Voice (Cartesia TTS) — per-avatar voice + synthesis language */}
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Voice (Cartesia)</label>
+                  <p className="font-poetic text-stone-500 text-xs mb-2">
+                    Voices are accent-native — pick one matching the avatar's primary language. Applies to new voice sessions.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                      <select
+                          className="flex-1 min-w-[160px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={ttsVoiceSel}
+                          onChange={e => setTtsVoiceSel(e.target.value)}
+                      >
+                          <option value="">Default (Miles — en)</option>
+                          {ttsVoices.map(v => (
+                              <option key={v.id} value={v.id}>{v.name} ({v.language})</option>
+                          ))}
+                      </select>
+                      <input
+                          className="w-24 p-2 rounded-md border bg-white font-poetic text-sm"
+                          placeholder="lang (pt)"
+                          value={ttsLangSel}
+                          onChange={e => setTtsLangSel(e.target.value)}
+                          title="Synthesis language hint (ISO code: en, pt, de …)"
+                      />
+                      <Button
+                          className="font-poetic"
+                          onClick={handleSaveTtsConfig}
+                          disabled={ttsSaving || !selectedAvatarId}
+                      >
+                          {ttsSaving ? "Saving..." : "Save voice"}
+                      </Button>
+                  </div>
+                  {ttsMsg && <p className="mt-1 text-xs text-stone-600">{ttsMsg}</p>}
+              </div>
+
+              {/* ── Shared (both labs) ── */}
+              <p className="font-poetic text-stone-400 text-xs font-semibold uppercase tracking-wider pt-2">Shared (text + voice)</p>
+
+              {/* Text Query provider and model */}
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Text Query</label>
+                  <p className="font-poetic text-stone-500 text-xs mb-2">
+                    Smaller models are faster — this model only generates retrieval keywords, so a small model (e.g. 8B) keeps responses quick.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                      <select
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserTextQueryProvider}
+                          onChange={e => {
+                              setCurrentUserTextQueryProvider(e.target.value);
+                              setCurrentUserTextQueryModel(llmOptions[e.target.value].models[0]);
+                          }}
+                      >
+                          {Object.keys(llmOptions).map(key => (
+                              <option key={key} value={key}>{llmOptions[key].name}</option>
+                          ))}
+                      </select>
+                      <select
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserTextQueryModel}
+                          onChange={e => setCurrentUserTextQueryModel(e.target.value)}
+                      >
+                          {llmOptions[currentUserTextQueryProvider]?.models.filter(model =>
+                              modelHealth[model] !== 'offline' || model === adminDefaultModels.textQuery
                           ).map(model => {
                               const status = modelHealth[model];
                               const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
@@ -1108,41 +1152,6 @@ export default function MultiAvatarChat() {
                           })}
                       </select>
                   </div>
-              </div>
-
-              {/* Voice (Cartesia TTS) — per-avatar voice + synthesis language */}
-              <div className="p-3 rounded-lg border bg-stone-50/60">
-                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Voice (Cartesia)</label>
-                  <p className="font-poetic text-stone-500 text-xs mb-2">
-                    Voices are accent-native — pick one matching the avatar's primary language. Applies to new voice sessions.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                      <select
-                          className="flex-1 min-w-[160px] p-2 rounded-md border bg-white font-poetic text-sm"
-                          value={ttsVoiceSel}
-                          onChange={e => setTtsVoiceSel(e.target.value)}
-                      >
-                          <option value="">Default (Miles — en)</option>
-                          {ttsVoices.map(v => (
-                              <option key={v.id} value={v.id}>{v.name} ({v.language})</option>
-                          ))}
-                      </select>
-                      <input
-                          className="w-24 p-2 rounded-md border bg-white font-poetic text-sm"
-                          placeholder="lang (pt)"
-                          value={ttsLangSel}
-                          onChange={e => setTtsLangSel(e.target.value)}
-                          title="Synthesis language hint (ISO code: en, pt, de …)"
-                      />
-                      <Button
-                          className="font-poetic"
-                          onClick={handleSaveTtsConfig}
-                          disabled={ttsSaving || !selectedAvatarId}
-                      >
-                          {ttsSaving ? "Saving..." : "Save voice"}
-                      </Button>
-                  </div>
-                  {ttsMsg && <p className="mt-1 text-xs text-stone-600">{ttsMsg}</p>}
               </div>
 
               {/* Admin defaults toggle */}

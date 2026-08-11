@@ -1803,11 +1803,6 @@ DEFAULT_TTS_LANGUAGE = "en"
 # response — it fetches them from /api/voice/last-timings instead.
 _last_voice_timings = {}
 
-# Stream sanitized sentences to Agora as the LLM generates (TTS starts on the
-# first sentence). Set False to force the original buffered single-chunk flow,
-# which also remains the automatic fallback when streaming fails.
-VOICE_STREAMING = True
-
 # Sentence boundary for streaming flushes: terminal punctuation (optionally
 # followed by closing quotes/brackets) plus trailing whitespace, or a newline.
 _SENTENCE_END_RE = re.compile(r'[.!?…]["\'”’)\]]*\s+|\n+')
@@ -1852,6 +1847,7 @@ def start_voice_agent():
     avatar_id = str(data.get("avatarId", "0"))
     channel = data.get("channel", "avatar-lab")
     user_uid = data.get("userUid", 0)
+    streaming = bool(data.get("streaming"))
 
     if avatar_id not in avatar_llms:
         return jsonify({"error": f"Unknown avatar: {avatar_id}"}), 404
@@ -1908,7 +1904,8 @@ def start_voice_agent():
                 }
             },
             "llm": {
-                "url": f"{BACKEND_PUBLIC_URL}/api/voice/chat-completions?avatar={avatar_id}",
+                "url": f"{BACKEND_PUBLIC_URL}/api/voice/chat-completions?avatar={avatar_id}"
+                       + ("&streaming=1" if streaming else ""),
                 "vendor": "custom",
                 "style": "openai",
                 "params": {"model": "avatar"},
@@ -2235,7 +2232,12 @@ def voice_chat_completions():
             else:
                 yield from generate_buffered()
 
-    gen = generate_streaming() if VOICE_STREAMING else generate_buffered()
+    # Streaming is opt-in per session via the agent's llm.url (?streaming=1),
+    # set by the voice lab toggle — off by default while Agora-side chunk
+    # handling is being ironed out (see ISSUES.md 14). Buffered remains the
+    # default and the automatic fallback on stream errors.
+    use_streaming = request.args.get("streaming") == "1"
+    gen = generate_streaming() if use_streaming else generate_buffered()
     return Response(
         stream_with_context(gen),
         mimetype="text/event-stream",

@@ -159,16 +159,23 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
     (openrouter/gemma) → voice endpoint 500s (OpenRouter has no credits).
     Restored by hand. Consider: confirmation prompt on the toggle, and/or
     backups/audit logging of avatars.json writes.
+    RECURRED same day (avatar 0 again + avatar 3 chat; avatar 2 chat changed to
+    qwen — possibly deliberate user action, left in place). GUARDS ADDED
+    2026-08-11: llm-defaults POST now merges instead of replacing (partial
+    payloads can no longer wipe other tasks), and the global chat fallback moved
+    off creditless OpenRouter to gwdg — a wipe now degrades instead of 500ing.
+    Toggle-confirmation and write auditing still open if it recurs.
 
 14. **Voice endpoint buffers the full LLM response before streaming** (2026-08-11)
-    /api/voice/chat-completions generates the complete reply, then emits it as one
-    SSE chunk — TTS can't start until generation finishes, so main_llm_ms maps 1:1
-    to perceived wait. Agora consumes streaming chunks and starts TTS on sentence
-    boundaries. Plan: stream=True in the LLM wrapper; yield token deltas; buffer
-    only the first ~40 chars to detect analyze_sensor_data() calls (fall back to
-    buffered mode if present); apply sanitize_for_tts per-chunk with a boundary
-    carry; accumulate full text for debug_log/timings at stream end. Expected:
-    perceived latency ≈ time-to-first-sentence (<1s on qwen3-30b).
+    IMPLEMENTED 2026-08-11: LLM.stream_deltas() (SSE for gwdg/openai, NDJSON for
+    ollama); voice endpoint streams sanitize_for_tts'd sentences as generated.
+    Head buffered ~48 chars to detect analyze_sensor_data() (falls back to
+    buffered flow); buffered path remains automatic fallback on stream errors
+    and selectable via VOICE_STREAMING. llm_first_token_ms added to timings.
+    Measured warm: first sentence at 2.7s vs full response at 6.3s — TTS starts
+    ~3.6s sooner. REMAINING: live ear test that Agora chunk-by-chunk TTS sounds
+    natural (sentence pacing); sensor tool-call branch not yet exercised live
+    (qwen answered trend question from snapshot without emitting the call).
 
 ## Watching
 

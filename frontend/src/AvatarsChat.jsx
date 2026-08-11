@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import LatencyBreakdown from "./LatencyBreakdown";
 
 import "@fontsource/chakra-petch";
 
@@ -45,6 +46,8 @@ export default function MultiAvatarChat() {
   const [currentUserTextQueryModel, setCurrentUserTextQueryModel] = useState('gwdg/gemma-3-27b-it');
   const [currentUserSensorProvider, setCurrentUserSensorProvider] = useState('gwdg');
   const [currentUserSensorModel, setCurrentUserSensorModel] = useState('mistral-large-instruct');
+  const [currentUserVoiceChatProvider, setCurrentUserVoiceChatProvider] = useState('gwdg');
+  const [currentUserVoiceChatModel, setCurrentUserVoiceChatModel] = useState('gwdg/qwen3-30b-a3b-instruct-2507');
   const [currentUserTemperature, setCurrentUserTemperature] = useState(0.7);
   const [currentUserTopK, setCurrentUserTopK] = useState(40);
   const [currentUserTopP, setCurrentUserTopP] = useState(1.0);
@@ -53,11 +56,22 @@ export default function MultiAvatarChat() {
   const [llmOptionsLastRefreshed, setLlmOptionsLastRefreshed] = useState(null);
   const [llmConfigExpanded, setLlmConfigExpanded] = useState(false);
   const [hasLlmDefaults, setHasLlmDefaults] = useState(false);
-  const [adminDefaultModels, setAdminDefaultModels] = useState({ chat: null, textQuery: null, sensor: null });
+  const [adminDefaultModels, setAdminDefaultModels] = useState({ chat: null, textQuery: null, sensor: null, voiceChat: null });
 
   // --- backend log viewer state ---
   const [logExpanded, setLogExpanded] = useState(false);
   const [backendLog, setBackendLog] = useState("");
+
+  // --- latency analysis state ---
+  const [latencyExpanded, setLatencyExpanded] = useState(false);
+  const [lastLatency, setLastLatency] = useState(null); // { roundTripMs, timings }
+
+  // --- TTS voice config state (Cartesia, per-avatar) ---
+  const [ttsVoices, setTtsVoices] = useState([]);
+  const [ttsVoiceSel, setTtsVoiceSel] = useState("");
+  const [ttsLangSel, setTtsLangSel] = useState("");
+  const [ttsSaving, setTtsSaving] = useState(false);
+  const [ttsMsg, setTtsMsg] = useState("");
   const backendLogRef = useRef(null);
   const backendLogPreRef = useRef(null);
   const backendLogFirstLoadRef = useRef(true);
@@ -128,6 +142,10 @@ export default function MultiAvatarChat() {
     })();
 
     // Fetch integrations
+    fetch("/api/voice/tts-voices")
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setTtsVoices(data); })
+      .catch(e => console.error("Failed to load TTS voices:", e));
     fetch("/api/integrations")
       .then(r => r.json())
       .then(setIntegrations)
@@ -276,14 +294,26 @@ export default function MultiAvatarChat() {
         setCurrentUserSensorModel(sm);
       }
 
+      // Load voice chat defaults (falls back to chat when unset — mirrors backend)
+      if (defaults.voiceChat) {
+        const { provider: vp, model: vm } = resolveModel(defaults.voiceChat.provider, defaults.voiceChat.model);
+        setCurrentUserVoiceChatProvider(vp);
+        setCurrentUserVoiceChatModel(vm);
+      } else if (defaults.chat) {
+        const { provider: vp, model: vm } = resolveModel(defaults.chat.provider, defaults.chat.model);
+        setCurrentUserVoiceChatProvider(vp);
+        setCurrentUserVoiceChatModel(vm);
+      }
+
       setAdminDefaultModels({
         chat: defaults.chat?.model || null,
         textQuery: defaults.textQuery?.model || null,
         sensor: defaults.sensor?.model || null,
+        voiceChat: defaults.voiceChat?.model || null,
       });
       setHasLlmDefaults(true);
     } else {
-      setAdminDefaultModels({ chat: null, textQuery: null, sensor: null });
+      setAdminDefaultModels({ chat: null, textQuery: null, sensor: null, voiceChat: null });
       // No Admin defaults saved, use global defaults
       const firstProvider = Object.keys(llmOptions)[0];
       if (firstProvider && llmOptions[firstProvider].models.length > 0) {
@@ -319,6 +349,8 @@ export default function MultiAvatarChat() {
           textQueryModel: currentUserTextQueryModel,
           sensorProvider: currentUserSensorProvider,
           sensorModel: currentUserSensorModel,
+          voiceChatProvider: currentUserVoiceChatProvider,
+          voiceChatModel: currentUserVoiceChatModel,
         }),
       });
 
@@ -651,6 +683,7 @@ export default function MultiAvatarChat() {
     console.log("fetchMessage called with prompt:", payload.prompt, "history:", payload.history, "avatar:", selectedAvatar);
 
     setIsThinking(true);
+    const t0 = performance.now();
     try {
       const resp = await fetch(
         "/api/chat?avatar="+selectedAvatar.id,
@@ -677,10 +710,12 @@ export default function MultiAvatarChat() {
         }
       );
       const data = await resp.json();
+      const roundTripMs = Math.round(performance.now() - t0);
       if (data.error) {
         setMessages(prev => [...prev, { sender: "avatar", text: `⚠️ ${data.error}` }]);
       } else {
         setMessages(prev => [...prev, { sender: "avatar", text: data.reply }]);
+        if (data.timings) setLastLatency({ roundTripMs, timings: data.timings });
       }
     } catch (error) {
       console.error(error);
@@ -732,6 +767,36 @@ export default function MultiAvatarChat() {
     setInput("");
     setIsThinking(true);
     await fetchMessage({ history: updated, prompt: userInput });
+  };
+
+  useEffect(() => {
+    // Sync TTS voice selection with the selected avatar's stored config
+    const av = avatars.find(a => a.id === selectedAvatarId);
+    setTtsVoiceSel(av?.ttsVoiceId || "");
+    setTtsLangSel(av?.ttsLanguage || "");
+    setTtsMsg("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAvatarId, avatars]);
+
+  const handleSaveTtsConfig = async () => {
+    if (!selectedAvatarId) return;
+    setTtsSaving(true);
+    setTtsMsg("");
+    try {
+      const resp = await fetch(`/api/avatars/${selectedAvatarId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ttsVoiceId: ttsVoiceSel, ttsLanguage: ttsLangSel }),
+      });
+      if (!resp.ok) throw new Error((await resp.json()).error || "Save failed");
+      const updated = await fetch("/api/avatars").then(r => r.json());
+      setAvatars(updated);
+      setTtsMsg("Saved — applies to new voice sessions");
+    } catch (e) {
+      setTtsMsg(`Error: ${e.message}`);
+    } finally {
+      setTtsSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -934,6 +999,9 @@ export default function MultiAvatarChat() {
               {/* Text Query provider and model */}
               <div className="p-3 rounded-lg border bg-stone-50/60">
                   <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Text Query</label>
+                  <p className="font-poetic text-stone-500 text-xs mb-2">
+                    Smaller models are faster — this model only generates retrieval keywords, so a small model (e.g. 8B) keeps responses quick.
+                  </p>
                   <div className="flex flex-wrap items-center gap-2">
                       <select
                           className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
@@ -954,6 +1022,45 @@ export default function MultiAvatarChat() {
                       >
                           {llmOptions[currentUserTextQueryProvider]?.models.filter(model =>
                               modelHealth[model] !== 'offline' || model === adminDefaultModels.textQuery
+                          ).map(model => {
+                              const status = modelHealth[model];
+                              const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
+                              return (
+                                  <option key={model} value={model} disabled={status === 'offline'}>
+                                      {indicator} {model} {status === 'offline' ? '(Offline — update admin default)' : ''}
+                                  </option>
+                              );
+                          })}
+                      </select>
+                  </div>
+              </div>
+
+              {/* Voice Chat provider and model — response generation for voice sessions */}
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Voice Chat</label>
+                  <p className="font-poetic text-stone-500 text-xs mb-2">
+                    Response model for voice sessions. Voice is latency-critical (speech can't start until the reply finishes) — prefer fast models with low variance.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                      <select
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserVoiceChatProvider}
+                          onChange={e => {
+                              setCurrentUserVoiceChatProvider(e.target.value);
+                              setCurrentUserVoiceChatModel(llmOptions[e.target.value].models[0]);
+                          }}
+                      >
+                          {Object.keys(llmOptions).map(key => (
+                              <option key={key} value={key}>{llmOptions[key].name}</option>
+                          ))}
+                      </select>
+                      <select
+                          className="flex-1 min-w-[120px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={currentUserVoiceChatModel}
+                          onChange={e => setCurrentUserVoiceChatModel(e.target.value)}
+                      >
+                          {llmOptions[currentUserVoiceChatProvider]?.models.filter(model =>
+                              modelHealth[model] !== 'offline' || model === adminDefaultModels.voiceChat
                           ).map(model => {
                               const status = modelHealth[model];
                               const indicator = status === 'online' ? '🟢' : status === 'offline' ? '🔴' : '⚪';
@@ -1001,6 +1108,41 @@ export default function MultiAvatarChat() {
                           })}
                       </select>
                   </div>
+              </div>
+
+              {/* Voice (Cartesia TTS) — per-avatar voice + synthesis language */}
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Voice (Cartesia)</label>
+                  <p className="font-poetic text-stone-500 text-xs mb-2">
+                    Voices are accent-native — pick one matching the avatar's primary language. Applies to new voice sessions.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                      <select
+                          className="flex-1 min-w-[160px] p-2 rounded-md border bg-white font-poetic text-sm"
+                          value={ttsVoiceSel}
+                          onChange={e => setTtsVoiceSel(e.target.value)}
+                      >
+                          <option value="">Default (Miles — en)</option>
+                          {ttsVoices.map(v => (
+                              <option key={v.id} value={v.id}>{v.name} ({v.language})</option>
+                          ))}
+                      </select>
+                      <input
+                          className="w-24 p-2 rounded-md border bg-white font-poetic text-sm"
+                          placeholder="lang (pt)"
+                          value={ttsLangSel}
+                          onChange={e => setTtsLangSel(e.target.value)}
+                          title="Synthesis language hint (ISO code: en, pt, de …)"
+                      />
+                      <Button
+                          className="font-poetic"
+                          onClick={handleSaveTtsConfig}
+                          disabled={ttsSaving || !selectedAvatarId}
+                      >
+                          {ttsSaving ? "Saving..." : "Save voice"}
+                      </Button>
+                  </div>
+                  {ttsMsg && <p className="mt-1 text-xs text-stone-600">{ttsMsg}</p>}
               </div>
 
               {/* Admin defaults toggle */}
@@ -1144,6 +1286,51 @@ export default function MultiAvatarChat() {
                   <span className="text-xs text-stone-600">{integrationMsg}</span>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Horizontal separator */}
+        <hr className="w-full border-stone-300" />
+
+        {/* Collapsible Latency Analysis */}
+        <div className="w-full">
+          <button
+            className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+            onClick={() => setLatencyExpanded(!latencyExpanded)}
+          >
+            <span className="text-lg">{latencyExpanded ? '▼' : '▶'}</span>
+            <span className="font-semibold">Latency Analysis</span>
+            {lastLatency && (
+              <span className="text-xs text-stone-400 font-mono">
+                {(lastLatency.roundTripMs / 1000).toFixed(2)}s
+              </span>
+            )}
+          </button>
+
+          {latencyExpanded && (
+            <div className="mt-2 p-3 rounded-lg border bg-stone-50/60">
+              {!lastLatency ? (
+                <p className="font-poetic text-stone-500 text-sm">
+                  Send a message to see its latency breakdown.
+                </p>
+              ) : (() => {
+                const t = lastLatency.timings;
+                const segments = [
+                  { label: "Keyword generation (LLM)", ms: t.keyword_gen_ms || 0, color: "#f59e0b" },
+                  { label: "Knowledge retrieval (RAG)", ms: t.rag_retrieval_ms || 0, color: "#22d3ee" },
+                  { label: "Web search", ms: t.web_search_ms || 0, color: "#a78bfa" },
+                  { label: "Sensor snapshot", ms: t.sensor_snapshot_ms || 0, color: "#34d399" },
+                  { label: "Avatar response (LLM)", ms: t.main_llm_ms || 0, color: "#60a5fa" },
+                  { label: "Sensor analysis tool", ms: t.sensor_tool_ms || 0, color: "#fb923c" },
+                ];
+                const attributed = segments.reduce((acc, s) => acc + s.ms, 0);
+                const backendOther = Math.max((t.total_backend_ms || 0) - attributed, 0);
+                if (backendOther > 0) segments.push({ label: "Backend overhead", ms: backendOther, color: "#d6d3d1" });
+                const network = Math.max(lastLatency.roundTripMs - (t.total_backend_ms || 0), 0);
+                if (network > 0) segments.push({ label: "Network + transport", ms: network, color: "#a8a29e" });
+                return <LatencyBreakdown segments={segments} totalMs={lastLatency.roundTripMs} />;
+              })()}
             </div>
           )}
         </div>

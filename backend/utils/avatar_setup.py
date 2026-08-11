@@ -14,8 +14,8 @@ API_BASE = None #os.getenv("GWDG_API_BASE")
 DEFAULT_CHAT_PROVIDER = "openrouter"
 DEFAULT_CHAT_MODEL = "google/gemma-4-26b-a4b-it"
 
-DEFAULT_TEXT_QUERY_PROVIDER = "openai"
-DEFAULT_TEXT_QUERY_MODEL = "gpt-4.1-mini"
+DEFAULT_TEXT_QUERY_PROVIDER = "gwdg"
+DEFAULT_TEXT_QUERY_MODEL = "meta-llama-3.1-8b-instruct"
 
 DEFAULT_SENSOR_PROVIDER = "openai"
 DEFAULT_SENSOR_MODEL = "gpt-4.1-mini"

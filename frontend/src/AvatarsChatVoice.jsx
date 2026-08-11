@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import AgoraRTC from "agora-rtc-sdk-ng";
+import LatencyBreakdown from "./LatencyBreakdown";
 
 AgoraRTC.setLogLevel(3); // warn only
 
@@ -25,11 +26,44 @@ export default function AvatarsChatVoice() {
   const [agentId, setAgentId] = useState(null);
   const [error, setError] = useState(null);
 
+  const [latencyExpanded, setLatencyExpanded] = useState(false);
+  const [lastLatency, setLastLatency] = useState(null); // { perceivedMs, timings }
+
   const clientRef = useRef(null);
   const micTrackRef = useRef(null);
   const volumeRafRef = useRef(null);
   // Unique channel per session so multiple browser tabs don't collide
   const channelRef = useRef(`avatar-lab-${Date.now()}`);
+
+  // --- latency measurement refs ---
+  // Perceived latency = time from the user's last voice activity (≈ end of speech)
+  // to the first agent audio of the next turn. The backend slice is fetched from
+  // /api/voice/last-timings; the remainder is the Agora pipeline (ASR + TTS + transport).
+  // KNOWN LIMITATION: ambient mic noise above the activity threshold keeps sliding
+  // the anchor forward, which can shrink the perceived total below the backend time
+  // and hide the derived Agora segment. A stricter hysteresis-based speech-end
+  // detector was tried (2026-07-31) but failed to trigger at all in practice —
+  // revisit with real mic-level data.
+  const lastVoiceActivityRef = useRef(null);
+  const agentSpeakingRef = useRef(false);
+  const agentQuietSinceRef = useRef(null);
+  const avatarIdRef = useRef(null);
+
+  const onAgentTurnStart = async (now) => {
+    const t0 = lastVoiceActivityRef.current;
+    if (!t0) return;
+    const perceivedMs = Math.round(now - t0);
+    let timings = {};
+    try {
+      const resp = await fetch(`/api/voice/last-timings?avatar=${avatarIdRef.current}`);
+      const data = await resp.json();
+      // Only trust timings from a recent request (guards against stale entries)
+      if (data.ts && Date.now() / 1000 - data.ts < 120) timings = data;
+    } catch (_e) { /* show perceived total only */ }
+    setLastLatency({ perceivedMs, timings });
+  };
+  const onAgentTurnStartRef = useRef(onAgentTurnStart);
+  onAgentTurnStartRef.current = onAgentTurnStart;
 
   // Load avatar list on mount
   useEffect(() => {
@@ -46,7 +80,11 @@ export default function AvatarsChatVoice() {
   const startVolumePolling = useCallback((micTrack) => {
     const poll = () => {
       if (!micTrack) return;
-      setUserVolume((micTrack.getVolumeLevel?.() ?? 0));
+      const v = micTrack.getVolumeLevel?.() ?? 0;
+      // Track the user's last voice activity — used as the start point of
+      // perceived latency when the agent's reply audio begins.
+      if (v > 0.1) lastVoiceActivityRef.current = performance.now();
+      setUserVolume(v);
       volumeRafRef.current = requestAnimationFrame(poll);
     };
     poll();
@@ -97,6 +135,7 @@ export default function AvatarsChatVoice() {
     if (!selectedAvatarId || status === "connecting") return;
     setError(null);
     setStatus("connecting");
+    avatarIdRef.current = selectedAvatarId;
 
     try {
       // 1. Get Agora credentials from backend
@@ -116,9 +155,28 @@ export default function AvatarsChatVoice() {
           user.audioTrack.play();
           setStatus("speaking");
 
-          // Poll avatar track volume for ripple animation
+          // Poll avatar track volume for ripple animation + turn-start detection
           const pollAvatar = () => {
-            setAvatarVolume(user.audioTrack.getVolumeLevel?.() ?? 0);
+            const v = user.audioTrack.getVolumeLevel?.() ?? 0;
+            const now = performance.now();
+            if (v > 0.08) {
+              if (!agentSpeakingRef.current) {
+                // Rising edge — the agent's reply audio just started
+                agentSpeakingRef.current = true;
+                onAgentTurnStartRef.current(now);
+              }
+              agentQuietSinceRef.current = null;
+            } else if (agentSpeakingRef.current) {
+              // Require >1s of silence before treating the turn as over,
+              // so natural mid-sentence pauses don't retrigger detection
+              if (agentQuietSinceRef.current == null) {
+                agentQuietSinceRef.current = now;
+              } else if (now - agentQuietSinceRef.current > 1000) {
+                agentSpeakingRef.current = false;
+                agentQuietSinceRef.current = null;
+              }
+            }
+            setAvatarVolume(v);
             volumeRafRef.current = requestAnimationFrame(pollAvatar);
           };
           pollAvatar();
@@ -128,6 +186,8 @@ export default function AvatarsChatVoice() {
       client.on("user-unpublished", (_user, mediaType) => {
         if (mediaType === "audio") {
           setAvatarVolume(0);
+          agentSpeakingRef.current = false;
+          agentQuietSinceRef.current = null;
           setStatus("listening");
         }
       });
@@ -234,6 +294,54 @@ export default function AvatarsChatVoice() {
           Speaking with: <span className="text-stone-700 font-semibold">{selectedAvatar.name}</span>
         </p>
       )}
+
+      {/* Latency Analysis — directly under the avatar selection */}
+      <div className="w-full max-w-lg">
+        <button
+          className="flex items-center gap-2 font-poetic text-stone-700 cursor-pointer hover:text-stone-900"
+          onClick={() => setLatencyExpanded(!latencyExpanded)}
+        >
+          <span className="text-lg">{latencyExpanded ? '▼' : '▶'}</span>
+          <span className="font-semibold">Latency Analysis</span>
+          {lastLatency && (
+            <span className="text-xs text-stone-400 font-mono">
+              {(lastLatency.perceivedMs / 1000).toFixed(2)}s
+            </span>
+          )}
+        </button>
+
+        {latencyExpanded && (
+          <div className="mt-2 p-3 rounded-lg border bg-white/60">
+            {!lastLatency ? (
+              <p className="font-poetic text-stone-500 text-sm">
+                Complete a voice exchange to see its latency breakdown.
+              </p>
+            ) : (() => {
+                const t = lastLatency.timings;
+                const segments = [
+                  { label: "Keyword generation (LLM)", ms: t.keyword_gen_ms || 0, color: "#f59e0b" },
+                  { label: "Knowledge retrieval (RAG)", ms: t.rag_retrieval_ms || 0, color: "#22d3ee" },
+                  { label: "Sensor snapshot", ms: t.sensor_snapshot_ms || 0, color: "#34d399" },
+                  { label: "Avatar response (LLM)", ms: t.main_llm_ms || 0, color: "#60a5fa" },
+                  { label: "Sensor analysis tool", ms: t.sensor_tool_ms || 0, color: "#fb923c" },
+                ];
+                const attributed = segments.reduce((acc, s) => acc + s.ms, 0);
+                const backendOther = Math.max((t.total_backend_ms || 0) - attributed, 0);
+                if (backendOther > 0) segments.push({ label: "Backend overhead", ms: backendOther, color: "#d6d3d1" });
+                const agora = Math.max(lastLatency.perceivedMs - (t.total_backend_ms || 0), 0);
+                if (agora > 0) segments.push({ label: "Agora pipeline (ASR + TTS + transport)", ms: agora, color: "#a8a29e" });
+                return (
+                  <>
+                    <LatencyBreakdown segments={segments} totalMs={lastLatency.perceivedMs} />
+                    <p className="mt-2 text-[10px] text-stone-400 font-poetic">
+                      Measured from end of your speech to first avatar audio. Agora pipeline time is derived, not directly measured.
+                    </p>
+                  </>
+                );
+              })()}
+          </div>
+        )}
+      </div>
 
       {/* Orbs — isolated in their own block, never overlap buttons below */}
       <div className="flex flex-col items-center gap-16 my-4">

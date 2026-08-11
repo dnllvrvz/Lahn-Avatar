@@ -1128,6 +1128,23 @@ Or if recent news is needed:
 "Lahn, news, research | Lahn, Nachrichten, Forschung
 WEB_SEARCH: latest Lahn river research 2026"
 
+Here are worked examples of the web-search decision:
+
+User: "How is the water quality these days?"
+-> WEB_SEARCH: NONE   (water quality comes from the live sensor feed, not the web)
+
+User: "What is the current temperature of the river?"
+-> WEB_SEARCH: NONE   (sensor feed covers current readings)
+
+User: "What fish live in the river?"
+-> WEB_SEARCH: NONE   (knowledge base content)
+
+User: "Has the river been in the news this month?"
+-> WEB_SEARCH: river news this month   (recent news is not in the knowledge base)
+
+User: "What did the latest research say about microplastics in the river?"
+-> WEB_SEARCH: latest research microplastics river   (recent publications need the web)
+
 Reply only in this two-line format, nothing else."""
 
     # Update the LLM's system prompt temporarily

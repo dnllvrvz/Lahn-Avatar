@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -34,7 +35,6 @@ from utils.utils import (
     RAG,
     build_or_load_index,
     detect_web_search_intent,
-    extract_keywords_multilingual,
     fetch_system_prompt_from_gdoc,
     fetch_text_index_query,
     generate_context_aware_keywords_for_multilingual_text_index_search,
@@ -195,6 +195,59 @@ if not os.path.exists(LLM_PROVIDERS_PATH):
 
 
 # ─── Shared helpers (used by /api/chat and /api/voice/chat-completions) ───
+
+# Marker that starts the sensor/function-calling section of avatar system prompts.
+# Voice/realtime routes truncate the prompt at this marker (tools are handled separately).
+SENSOR_SECTION_MARKER = "You also have access to sensory data"
+
+# Injected into the system prompt alongside the always-fetch sensor snapshot,
+# in both the chat and voice pipelines.
+SENSOR_SNAPSHOT_INSTRUCTION = (
+    "\n\nCURRENT SENSOR SNAPSHOT:\n{summary}\n"
+    "Use this for simple current-reading questions. Call analyze_sensor_data() "
+    "only for trend analysis or questions requiring historical data."
+)
+
+# Emoji / pictograph ranges commonly emitted by chat models.
+_EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
+
+def sanitize_for_tts(text):
+    """
+    Strip formatting that TTS vocalizes. Verified 2026-08-11: Cartesia (sonic-2
+    AND sonic-3) literally speaks '|' as "vertical bar"; models also emit
+    *markdown* and emojis into voice replies despite prompt instructions.
+    """
+    t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)   # [text](url) -> text
+    t = re.sub(r"^\s*[-•]\s+", "", t, flags=re.M)        # bullet markers
+    t = re.sub(r"[*_`#|]+", " ", t)                      # markdown chars + pipes
+    t = _EMOJI_RE.sub("", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+# Quantities a live sensor feed can answer (EN/DE/PT). A web-search flag whose
+# query matches one of these is suppressed for avatars that have sensors — small
+# keyword-gen LLMs misjudge this boundary (tested: 8B fails 0-1/5 on sensor topics
+# even with few-shot examples), so it is enforced deterministically here.
+SENSOR_TOPIC_TERMS = [
+    "temperature", "temperatur", "temperatura",
+    "water quality", "wasserqualität", "qualidade da água",
+    "ph", "humidity", "luftfeuchtigkeit", "umidade",
+    "conductivity", "leitfähigkeit", "condutividade",
+    "oxygen", "sauerstoff", "oxigênio",
+    "co2", "tds", "pressure", "druck", "pressão",
+    "sensor", "reading", "messwert",
+]
+
+def suppress_sensor_web_search(web_query, avatar_id):
+    """Drop a web-search flag if the avatar has sensors and the query is sensor-covered."""
+    if not web_query or not avatar_sensor_tools.get(avatar_id):
+        return web_query
+    q = web_query.lower()
+    hit = next((t for t in SENSOR_TOPIC_TERMS if re.search(rf"\b{re.escape(t)}\b", q)), None)
+    if hit:
+        print(f"[web search] Suppressed {web_query!r} — sensor-covered topic ({hit!r})")
+        return None
+    return web_query
 
 MODEL_FAMILIES = ['gemma', 'qwen', 'llama', 'mistral', 'deepseek', 'codestral',
                   'phi', 'falcon', 'mixtral', 'command', 'claude', 'gpt',
@@ -377,6 +430,14 @@ def resolve_llm_defaults(avatar_id, user_params=None):
     resolved["sensor_model"] = _resolve(
         user_params.get("sensorModel"), sensor_defaults.get("model"), DEFAULT_SENSOR_MODEL, "sensor_model")
 
+    # Voice chat — response model for voice sessions, separate from text chat
+    # because voice is latency-critical (the reply blocks TTS). Falls back to
+    # the resolved text-chat model when unset.
+    voice_defaults = admin_defaults.get("voiceChat", {})
+    resolved["voice_chat_provider"] = voice_defaults.get("provider") or resolved["chat_provider"]
+    resolved["voice_chat_model"] = voice_defaults.get("model") or resolved["chat_model"]
+    sources["voice_chat_model"] = "Admin defaults" if voice_defaults.get("model") else "inherited from chat"
+
     return resolved, sources
 
 
@@ -385,25 +446,33 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
     """
     Inject RAG context into the last message of chat_history (in-place).
     verbose=True uses the full chat-style wrapper; False uses a compact voice wrapper.
-    Returns (rag_injected: bool, web_search_query: str | None).
+    Returns (rag_injected: bool, web_search_query: str | None, timings: dict).
     The web_search_query is detected in the same LLM call as keyword generation (RAG path),
     or via a dedicated lightweight call (no-RAG path).
     """
+    timings = {}
     tools = avatar_rag_tools.get(avatar_id)
     has_rag = tools and tools[0] is not None
     has_sensor = bool(avatar_sensor_tools.get(avatar_id))
 
     if not has_rag:
         # No RAG — run a cheap dedicated web search intent check
+        _t = time.perf_counter()
         web_search_query = detect_web_search_intent(text_query_llm, conversation_for_rag, has_sensor=has_sensor)
-        return False, web_search_query
+        timings["keyword_gen_ms"] = round((time.perf_counter() - _t) * 1000)
+        return False, web_search_query, timings
 
     rag_languages = tools[4] if len(tools) > 4 else ['en', 'de']
 
+    _t = time.perf_counter()
     keywords_by_lang, web_search_query = generate_context_aware_keywords_for_multilingual_text_index_search(
         text_query_llm, conversation_for_rag, rag_languages, has_sensor=has_sensor
     )
+    timings["keyword_gen_ms"] = round((time.perf_counter() - _t) * 1000)
+
+    _t = time.perf_counter()
     context = RAG(tools, None, keywords_by_lang=keywords_by_lang)
+    timings["rag_retrieval_ms"] = round((time.perf_counter() - _t) * 1000)
 
     if verbose:
         wrapper = (
@@ -421,7 +490,7 @@ def inject_rag_context(avatar_id, chat_history, conversation_for_rag, text_query
         wrapper = " <End of User message>. <<Context from knowledge base: "
 
     chat_history[-1]["content"] += wrapper + context + (">>" if not verbose else "")
-    return True, web_search_query
+    return True, web_search_query, timings
 
 
 def handle_sensor_tool_call(response_text, avatar_id, sensor_provider, sensor_model,
@@ -790,6 +859,7 @@ def refresh_embeddings():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     # global llm, llm_choice, system_prompt
+    _t0 = time.perf_counter()
     avatar_id = request.args.get("avatar", "0")
     data = request.get_json()
 
@@ -888,12 +958,14 @@ def chat():
     )
 
     # === RAG Context Injection + Web Search Intent Classification ===
-    # inject_rag_context returns (rag_injected, web_search_query).
+    # inject_rag_context returns (rag_injected, web_search_query, timings).
     # For RAG avatars the web search intent is detected in the same LLM call as keyword generation.
     # For no-RAG avatars a dedicated lightweight call is made instead.
-    rag_injected, pre_web_search_query = inject_rag_context(
+    rag_injected, pre_web_search_query, timings = inject_rag_context(
         avatar_id, chat_history, conversation, text_query_llm, verbose=True
     )
+    pre_web_search_query = suppress_sensor_web_search(pre_web_search_query, avatar_id)
+    print(f"[TIMING] keyword-gen: {timings.get('keyword_gen_ms', 0)}ms, rag-retrieval: {timings.get('rag_retrieval_ms', 0)}ms")
     if rag_injected:
         print("Obtaining information for the LLM...")
         # Log the injected context (last user message now contains the RAG context)
@@ -930,9 +1002,11 @@ When you call the function, output ONLY the function call line, nothing else.
     # Gives LLM current readings for simple queries without tool invocation.
     # analyze_sensor_data() tool still handles complex analytical queries.
     if sensor_config:
+        _ts = time.perf_counter()
         sensor_summary = _fetch_sensor_summary(avatar_id)
+        timings["sensor_snapshot_ms"] = round((time.perf_counter() - _ts) * 1000)
         if sensor_summary:
-            chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
+            chat_history[0]["content"] += SENSOR_SNAPSHOT_INSTRUCTION.format(summary=sensor_summary)
 
     # === Pre-fetch web search results (classifier-driven) ===
     # Open-source models do not reliably emit tool calls, so rather than instructing the
@@ -940,7 +1014,10 @@ When you call the function, output ONLY the function call line, nothing else.
     # and inject results as context. The main LLM responds naturally without tool-calling.
     if pre_web_search_query:
         print(f"[web search] Pre-fetching for classifier query: {pre_web_search_query!r}")
+        _tw = time.perf_counter()
         pre_search_results = web_search(pre_web_search_query, count=5, api_key=get_integration_key("BRAVE_SEARCH_API_KEY"))
+        timings["web_search_ms"] = round((time.perf_counter() - _tw) * 1000)
+        print(f"[TIMING] web-search: {time.perf_counter() - _tw:.2f}s")
         chat_history[0]["content"] += (
             f"\n\nWEB SEARCH RESULTS (pre-fetched for your response):\n{pre_search_results}\n"
             "Use these results to inform your answer where relevant. "
@@ -954,18 +1031,25 @@ When you call the function, output ONLY the function call line, nothing else.
                               temperature=temperature, top_k=top_k, top_p=top_p,
                               task_name="chat", providers=providers)
 
+    _tllm = time.perf_counter()
     chat_completion = llm.complete(messages_to_send)
     response = chat_completion.text
+    timings["main_llm_ms"] = round((time.perf_counter() - _tllm) * 1000)
+    print(f"[TIMING] main-LLM: {time.perf_counter() - _tllm:.2f}s")
 
     print("\nAvatar response: ", response)
     debug_log(avatar_id, "CHAT/LLM_RESPONSE", response)
     debug_log(avatar_id, "CHAT/FULL_PROMPT", json.dumps(messages_to_send, ensure_ascii=False, indent=2))
 
+    _tst = time.perf_counter()
     sensor_response, sensor_handled = handle_sensor_tool_call(
         response, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
     if sensor_handled:
+        timings["sensor_tool_ms"] = round((time.perf_counter() - _tst) * 1000)
+        timings["total_backend_ms"] = round((time.perf_counter() - _t0) * 1000)
+        print(f"[TIMING] CHAT total: {time.perf_counter() - _t0:.2f}s")
         print("Avatar response after getting sensor data:", sensor_response)
-        return jsonify({"reply": sensor_response})
+        return jsonify({"reply": sensor_response, "timings": timings})
 
     if "analyze_sensor_data" in response and not avatar_sensor_tools.get(avatar_id):
         # Avatar has no sensor tool configured but model tried to call it
@@ -977,7 +1061,8 @@ When you call the function, output ONLY the function call line, nothing else.
         chat_completion_2 = llm.complete(
             chat_history + [{"role": "assistant", "content": results}],
         )
-        return jsonify({"reply": chat_completion_2.text.replace("*", "")})
+        timings["total_backend_ms"] = round((time.perf_counter() - _t0) * 1000)
+        return jsonify({"reply": chat_completion_2.text.replace("*", ""), "timings": timings})
 
     # NOTE: There is intentionally no post-response web_search detection here.
     # Web search is handled entirely by the pre-classifier in inject_rag_context above.
@@ -987,7 +1072,9 @@ When you call the function, output ONLY the function call line, nothing else.
 
     response = response.replace("*", "")
 
-    return jsonify({"reply": response})
+    timings["total_backend_ms"] = round((time.perf_counter() - _t0) * 1000)
+    print(f"[TIMING] CHAT total: {time.perf_counter() - _t0:.2f}s")
+    return jsonify({"reply": response, "timings": timings})
 
 
 @app.route("/api/debate-summary", methods=["POST"])
@@ -1106,7 +1193,7 @@ def voice_chat():
     system_prompt = avatar_llms["0"].system_prompt
 
     # Do away with function-related instructions, for now.
-    index = system_prompt.find("You also have access to sensory data")
+    index = system_prompt.find(SENSOR_SECTION_MARKER)
     system_prompt_ = system_prompt[:index]
 
     try:
@@ -1184,7 +1271,7 @@ def stream(ws):
 
     system_prompt = avatar_llms["0"].system_prompt
     # Do away with function-related instructions, for now.
-    index = system_prompt.find("You also have access to sensory data")
+    index = system_prompt.find(SENSOR_SECTION_MARKER)
     system_prompt_ = system_prompt[:index]
 
     client = OpenAIRealtimeClient(
@@ -1322,7 +1409,8 @@ def avatar_detail(avatar_id):
         return jsonify({"error": "Avatar not found."}), 404
 
     # Only update fields present in request
-    for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl", "sensorDescription"]:
+    for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl", "sensorDescription",
+                  "ttsVoiceId", "ttsLanguage"]:
         if field in data and data[field] is not None:
             avatar[field] = data[field]
 
@@ -1378,6 +1466,10 @@ def avatar_llm_defaults(avatar_id):
         "sensor": {
             "provider": data.get("sensorProvider"),
             "model": data.get("sensorModel")
+        },
+        "voiceChat": {
+            "provider": data.get("voiceChatProvider"),
+            "model": data.get("voiceChatModel")
         }
     }
 
@@ -1668,10 +1760,24 @@ threading.Thread(target=_auto_refresh_models, daemon=True).start()
 # ═══════════════════════════════════════════════════════════
 import uuid as _uuid
 import base64 as _base64
+from urllib.parse import quote as _urlquote
 
 voice_bp = Blueprint("voice", __name__)
 
 AGORA_CONV_AI_BASE = "https://api.agora.io/api/conversational-ai-agent/v2/projects"
+
+# Default TTS voice/language — Cartesia "Miles - Yogi", an English voice.
+# Per-avatar override via avatars.json `ttsVoiceId` / `ttsLanguage`: voices are
+# accent-native, so avatars whose primary language isn't English should set a
+# native voice (verified 2026-08-11: an EN voice anglicizes PT proper nouns —
+# "Morretes"→"Moretz" — while a native PT voice renders them perfectly).
+DEFAULT_TTS_VOICE_ID = "f114a467-c40a-4db8-964d-aaba89cd08fa"
+DEFAULT_TTS_LANGUAGE = "en"
+
+# Most recent voice request timings, keyed by avatar_id. The Agora agent calls
+# /api/voice/chat-completions directly, so the browser can't read timings off that
+# response — it fetches them from /api/voice/last-timings instead.
+_last_voice_timings = {}
 
 
 def _agora_auth_headers():
@@ -1723,7 +1829,7 @@ def start_voice_agent():
 
     # Use avatar system prompt — trim sensor/function instructions (handled separately)
     system_prompt = avatar_llms[avatar_id].system_prompt
-    cutoff = system_prompt.find("You also have access to sensory data")
+    cutoff = system_prompt.find(SENSOR_SECTION_MARKER)
     if cutoff > 0:
         system_prompt = system_prompt[:cutoff].strip()
 
@@ -1755,9 +1861,17 @@ def start_voice_agent():
             "idle_timeout": 120,
             "asr": {
                 "vendor": "deepgram",
-                "language": "en-US",
                 "params": {
                     "api_key": get_integration_key("DEEPGRAM_API_KEY"),
+                    "model": "nova-3",
+                    # Multilingual code-switching. Verified 2026-08-11 (isolated
+                    # Deepgram test): fixes PT/DE transcription, English unaffected.
+                    # Not in Agora's documented language list, but Agora passes
+                    # params through to Deepgram unvalidated.
+                    "language": "multi",
+                    # nova-3 keyterm prompting — boost the avatar's proper nouns
+                    # (residual failure class: "Rio Sagrado"→"risigrado").
+                    **({"keyterm": _urlquote(avatar["name"])} if avatar and avatar.get("name") else {}),
                 }
             },
             "llm": {
@@ -1774,8 +1888,20 @@ def start_voice_agent():
                 "vendor": "cartesia",
                 "params": {
                     "api_key": get_integration_key("CARTESIA_API_KEY"),
-                    "model_id": "sonic-2",
-                    "voice_id": "f114a467-c40a-4db8-964d-aaba89cd08fa",
+                    # Explicit model choice (2026-08-11): sonic-3 — current
+                    # Cartesia generation, better multilingual/prosody than the
+                    # sonic-2 the integration example shipped with. Verified
+                    # working on our API key.
+                    "model_id": "sonic-3",
+                    # Documented Cartesia voice shape — a flat "voice_id" key is
+                    # silently ignored and Cartesia falls back to a default voice.
+                    "voice": {
+                        "mode": "id",
+                        "id": (avatar.get("ttsVoiceId") if avatar else None) or DEFAULT_TTS_VOICE_ID,
+                    },
+                    # Synthesis language hint (Cartesia defaults to "en" when
+                    # absent, even for non-English reply text).
+                    "language": (avatar.get("ttsLanguage") if avatar else None) or DEFAULT_TTS_LANGUAGE,
                 }
             }
         }
@@ -1819,6 +1945,36 @@ def stop_voice_agent():
     return jsonify({"status": "stopped"})
 
 
+@voice_bp.route("/api/voice/tts-voices", methods=["GET"])
+def list_tts_voices():
+    """List available Cartesia voices (id, name, language) for the Avatar Lab voice picker."""
+    try:
+        resp = requests.get(
+            "https://api.cartesia.ai/voices/?limit=100",
+            headers={"X-API-Key": get_integration_key("CARTESIA_API_KEY"),
+                     "Cartesia-Version": "2025-04-16"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        voices = data if isinstance(data, list) else data.get("data", [])
+        trimmed = sorted(
+            [{"id": v["id"], "name": v.get("name", ""), "language": v.get("language", "")}
+             for v in voices],
+            key=lambda v: (v["language"], v["name"]),
+        )
+        return jsonify(trimmed)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@voice_bp.route("/api/voice/last-timings", methods=["GET"])
+def voice_last_timings():
+    """Return backend timings for the most recent voice request of an avatar."""
+    avatar_id = str(request.args.get("avatar", "0"))
+    return jsonify(_last_voice_timings.get(avatar_id) or {})
+
+
 @voice_bp.route("/api/voice/chat-completions", methods=["POST"])
 def voice_chat_completions():
     """
@@ -1843,7 +1999,7 @@ def voice_chat_completions():
 
     # Resolve LLM parameters from admin defaults (no user params for voice)
     resolved, _ = resolve_llm_defaults(avatar_id)
-    chat_provider, chat_model = fallback_model(resolved["chat_provider"], resolved["chat_model"])
+    chat_provider, chat_model = fallback_model(resolved["voice_chat_provider"], resolved["voice_chat_model"])
     text_query_provider_raw, text_query_model_raw = fallback_model(resolved["text_query_provider"], resolved["text_query_model"])
     temperature = resolved["temperature"]
     top_k = resolved["top_k"]
@@ -1868,19 +2024,33 @@ def voice_chat_completions():
         for m in conversation_msgs
     ]
 
+    _vt0 = time.perf_counter()
+    vtimings = {}
+
     # RAG context injection
-    # Voice RAG: skip LLM keyword generation — use spaCy/langid extraction directly on user utterance.
-    # This avoids a full LLM round-trip that would exceed Agora's response timeout.
-    # Trade-off: not context-aware across turns (only current utterance). See design notes.
+    # Voice RAG: LLM-based keyword generation (same path as chat) — context-aware
+    # across turns and robust on short/ambiguous utterances. The configured
+    # text-query model should be small (e.g. 8B, ~1s) to fit Agora's timeout.
+    # The web-search intent from the same call is ignored: voice has no web search.
     try:
         if avatar_rag_tools.get(avatar_id):
-            user_query = conversation_msgs[-1]["content"]
             rag_languages = avatar_rag_tools[avatar_id][4] if len(avatar_rag_tools[avatar_id]) > 4 else ['en', 'de']
-            keywords_by_lang = extract_keywords_multilingual(user_query, rag_languages)
+            text_query_llm = create_llm_instance(
+                text_query_provider, text_query_model, TEXT_QUERY_SYSTEM_PROMPT,
+                task_name="voice_text_query", providers=providers,
+            )
+            _tr = time.perf_counter()
+            keywords_by_lang, _web_q = generate_context_aware_keywords_for_multilingual_text_index_search(
+                text_query_llm, conversation_for_rag, rag_languages,
+                has_sensor=bool(avatar_sensor_tools.get(avatar_id)),
+            )
+            vtimings["keyword_gen_ms"] = round((time.perf_counter() - _tr) * 1000)
+            _tr = time.perf_counter()
             rag_context = RAG(avatar_rag_tools[avatar_id], keywords_by_lang=keywords_by_lang)
+            vtimings["rag_retrieval_ms"] = round((time.perf_counter() - _tr) * 1000)
             if rag_context:
                 chat_history[-1]["content"] += f" <End of User message>. <<Context from knowledge base: {rag_context}>>"
-                print("[Voice] RAG context injected (direct keyword extraction)")
+                print("[Voice] RAG context injected (LLM keyword generation)")
                 debug_log(avatar_id, "VOICE/RAG_CONTEXT", rag_context)
     except Exception as e:
         print(f"[Voice] RAG failed (continuing without context): {e}")
@@ -1888,9 +2058,11 @@ def voice_chat_completions():
     # Sensor tool prompt injection + always-fetch snapshot
     sensor_config = avatar_sensor_tools.get(avatar_id)
     if sensor_config:
+        _ts = time.perf_counter()
         sensor_summary = _fetch_sensor_summary(avatar_id)
+        vtimings["sensor_snapshot_ms"] = round((time.perf_counter() - _ts) * 1000)
         if sensor_summary:
-            chat_history[0]["content"] += f"\n\nCURRENT SENSOR SNAPSHOT:\n{sensor_summary}\nUse this for simple current-reading questions. Call analyze_sensor_data() only for trend analysis or questions requiring historical data."
+            chat_history[0]["content"] += SENSOR_SNAPSHOT_INSTRUCTION.format(summary=sensor_summary)
         else:
             chat_history[0]["content"] += (
                 "\n\nIf the user asks about live sensor data (temperature, pH, water quality etc.), "
@@ -1902,14 +2074,24 @@ def voice_chat_completions():
     llm = create_llm_instance(chat_provider, chat_model, system_prompt,
                               temperature=temperature, top_k=top_k, top_p=top_p,
                               task_name="voice_chat", providers=providers)
+    _tllmv = time.perf_counter()
     response_text = llm.complete(chat_history).text
+    vtimings["main_llm_ms"] = round((time.perf_counter() - _tllmv) * 1000)
 
     # Handle inline sensor call if model requested it
+    _tst = time.perf_counter()
     response_text, sensor_handled = handle_sensor_tool_call(
         response_text, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
     if sensor_handled:
+        vtimings["sensor_tool_ms"] = round((time.perf_counter() - _tst) * 1000)
         print("[Voice] Sensor analysis complete")
 
+    response_text = sanitize_for_tts(response_text)
+
+    vtimings["total_backend_ms"] = round((time.perf_counter() - _vt0) * 1000)
+    vtimings["ts"] = time.time()
+    _last_voice_timings[avatar_id] = vtimings
+    print(f"[TIMING] VOICE backend: {vtimings}")
     print(f"[Voice] Response: {response_text[:120]}...")
     debug_log(avatar_id, "VOICE/LLM_RESPONSE", response_text)
     debug_log(avatar_id, "VOICE/FULL_PROMPT", json.dumps(chat_history, ensure_ascii=False, indent=2))

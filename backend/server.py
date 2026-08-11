@@ -1451,7 +1451,7 @@ def avatar_llm_defaults(avatar_id):
     # POST - save defaults
     data = request.get_json() or {}
 
-    llm_defaults = {
+    incoming = {
         "chat": {
             "provider": data.get("chatProvider"),
             "model": data.get("chatModel"),
@@ -1473,9 +1473,14 @@ def avatar_llm_defaults(avatar_id):
         }
     }
 
-    # Remove None values
-    for task in llm_defaults:
-        llm_defaults[task] = {k: v for k, v in llm_defaults[task].items() if v is not None}
+    # Merge into existing defaults rather than replacing wholesale — a payload
+    # missing a task's fields must not wipe that task (avatars.json lost
+    # defaults twice on 2026-08-11 to partial/implicit saves; see ISSUES.md 13).
+    llm_defaults = dict(avatar.get("llmDefaults", {}))
+    for task, cfg in incoming.items():
+        cfg = {k: v for k, v in cfg.items() if v is not None}
+        if cfg.get("model") or cfg.get("provider"):
+            llm_defaults[task] = cfg
 
     avatar["llmDefaults"] = llm_defaults
     json.dump(avatars, open(avatars_path, "w"))

@@ -10,9 +10,11 @@ API_KEY = os.getenv("OPENAI_API_KEY") #("GWDG_API_KEY")
 API_BASE = None #os.getenv("GWDG_API_BASE")
 
 
-# Default LLM choices for each task (used when not specified in request)
-DEFAULT_CHAT_PROVIDER = "openrouter"
-DEFAULT_CHAT_MODEL = "google/gemma-4-26b-a4b-it"
+# Default LLM choices for each task (used when not specified in request).
+# Keep these on a provider with working credentials — they are the last-resort
+# fallback when an avatar has no admin defaults (see ISSUES.md 13).
+DEFAULT_CHAT_PROVIDER = "gwdg"
+DEFAULT_CHAT_MODEL = "gwdg/openai-gpt-oss-120b"
 
 DEFAULT_TEXT_QUERY_PROVIDER = "gwdg"
 DEFAULT_TEXT_QUERY_MODEL = "meta-llama-3.1-8b-instruct"

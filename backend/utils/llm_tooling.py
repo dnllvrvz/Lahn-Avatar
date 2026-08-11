@@ -208,6 +208,65 @@ class LLM(CustomLLM):
         full = self.complete(prompt, **kwargs)
         yield CompletionResponse(text=full.text, delta=full.text)
 
+    def stream_deltas(self, prompt: Any, **kwargs: Any):
+        """
+        Yield raw text deltas as they arrive from the provider (true streaming,
+        unlike stream_complete above which buffers). OpenAI-compatible SSE for
+        gwdg/openai; NDJSON for ollama. Raises on HTTP errors so callers can
+        fall back to complete().
+        """
+        messages = self._normalize_messages(prompt, messages=kwargs.get("messages"))
+
+        if self.provider in ("gwdg", "openai"):
+            if self.provider == "gwdg":
+                api_key, api_base, model = self.gwdg_api_key, self.gwdg_api_base, self.gwdg_model
+                extra = {"top_k": self.top_k}
+            else:
+                api_key, api_base, model = self.openai_api_key, self.openai_api_base, self.openai_model
+                extra = {}
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            payload = {"model": model, "messages": messages, "temperature": self.temperature,
+                       "top_p": self.top_p, "stream": True, **extra}
+            url = f"{api_base.rstrip('/')}/chat/completions"
+            with requests.post(url, headers=headers, json=payload, timeout=self.timeout, stream=True) as resp:
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"{self.provider.upper()} API error {resp.status_code}: {resp.text[:300]}")
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(data)["choices"][0].get("delta", {}).get("content")
+                    except (KeyError, IndexError, json.JSONDecodeError):
+                        continue
+                    if delta:
+                        yield delta
+
+        elif self.provider == "ollama":
+            headers = {"Authorization": f"Bearer {self.ollama_api_key}", "Content-Type": "application/json"}
+            payload = {"model": self.ollama_model, "messages": messages, "stream": True,
+                       "options": {"temperature": self.temperature, "top_k": self.top_k, "top_p": self.top_p}}
+            url = f"{self.ollama_api_base.rstrip('/')}/api/chat"
+            with requests.post(url, headers=headers, json=payload, timeout=self.timeout, stream=True) as resp:
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"OLLAMA API error {resp.status_code}: {resp.text[:300]}")
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("done"):
+                        break
+                    delta = obj.get("message", {}).get("content")
+                    if delta:
+                        yield delta
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
+
 
 
 # class GWDGChatLLM(CustomLLM):

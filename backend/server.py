@@ -1779,6 +1779,15 @@ DEFAULT_TTS_LANGUAGE = "en"
 # response — it fetches them from /api/voice/last-timings instead.
 _last_voice_timings = {}
 
+# Stream sanitized sentences to Agora as the LLM generates (TTS starts on the
+# first sentence). Set False to force the original buffered single-chunk flow,
+# which also remains the automatic fallback when streaming fails.
+VOICE_STREAMING = True
+
+# Sentence boundary for streaming flushes: terminal punctuation (optionally
+# followed by closing quotes/brackets) plus trailing whitespace, or a newline.
+_SENTENCE_END_RE = re.compile(r'[.!?…]["\'”’)\]]*\s+|\n+')
+
 
 def _agora_auth_headers():
     creds = _base64.b64encode(f"{get_integration_key('AGORA_CUSTOMER_ID')}:{get_integration_key('AGORA_CUSTOMER_SECRET')}".encode()).decode()
@@ -2075,47 +2084,126 @@ def voice_chat_completions():
                               temperature=temperature, top_k=top_k, top_p=top_p,
                               task_name="voice_chat", providers=providers)
     _tllmv = time.perf_counter()
-    response_text = llm.complete(chat_history).text
-    vtimings["main_llm_ms"] = round((time.perf_counter() - _tllmv) * 1000)
-
-    # Handle inline sensor call if model requested it
-    _tst = time.perf_counter()
-    response_text, sensor_handled = handle_sensor_tool_call(
-        response_text, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
-    if sensor_handled:
-        vtimings["sensor_tool_ms"] = round((time.perf_counter() - _tst) * 1000)
-        print("[Voice] Sensor analysis complete")
-
-    response_text = sanitize_for_tts(response_text)
-
-    vtimings["total_backend_ms"] = round((time.perf_counter() - _vt0) * 1000)
-    vtimings["ts"] = time.time()
-    _last_voice_timings[avatar_id] = vtimings
-    print(f"[TIMING] VOICE backend: {vtimings}")
-    print(f"[Voice] Response: {response_text[:120]}...")
-    debug_log(avatar_id, "VOICE/LLM_RESPONSE", response_text)
-    debug_log(avatar_id, "VOICE/FULL_PROMPT", json.dumps(chat_history, ensure_ascii=False, indent=2))
-
-    # Stream back as SSE (single chunk — Agora accepts this)
     response_id = str(_uuid.uuid4())
 
-    def generate():
+    def _sse(delta=None, finish=False):
         chunk = {
             "id": response_id,
             "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text}, "finish_reason": None}]
+            "choices": [{"index": 0,
+                         "delta": ({"role": "assistant", "content": delta} if delta is not None else {}),
+                         "finish_reason": "stop" if finish else None}],
         }
-        yield f"data: {json.dumps(chunk)}\n\n"
-        done_chunk = {
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
-        }
-        yield f"data: {json.dumps(done_chunk)}\n\n"
+        return f"data: {json.dumps(chunk)}\n\n"
+
+    def _finalize(full_text):
+        """Record timings and debug logs once the full response is known."""
+        vtimings["total_backend_ms"] = round((time.perf_counter() - _vt0) * 1000)
+        vtimings["ts"] = time.time()
+        _last_voice_timings[avatar_id] = vtimings
+        print(f"[TIMING] VOICE backend: {vtimings}")
+        print(f"[Voice] Response: {full_text[:120]}...")
+        debug_log(avatar_id, "VOICE/LLM_RESPONSE", full_text)
+        debug_log(avatar_id, "VOICE/FULL_PROMPT", json.dumps(chat_history, ensure_ascii=False, indent=2))
+
+    def _buffered_response():
+        """Original non-streaming flow — also the fallback when streaming fails."""
+        text = llm.complete(chat_history).text
+        vtimings["main_llm_ms"] = round((time.perf_counter() - _tllmv) * 1000)
+        _tst = time.perf_counter()
+        text, sensor_handled = handle_sensor_tool_call(
+            text, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
+        if sensor_handled:
+            vtimings["sensor_tool_ms"] = round((time.perf_counter() - _tst) * 1000)
+            print("[Voice] Sensor analysis complete")
+        return sanitize_for_tts(text)
+
+    def generate_buffered():
+        text = _buffered_response()
+        _finalize(text)
+        yield _sse(text)
+        yield _sse(finish=True)
         yield "data: [DONE]\n\n"
 
+    def generate_streaming():
+        """
+        Stream sanitized sentences to Agora as the LLM produces them — TTS starts
+        on the first sentence instead of waiting for the full response.
+        The head of the stream is buffered briefly to detect sensor tool calls,
+        which require the complete response (handled via the buffered flow).
+        """
+        buf, full_parts = "", []
+        head_checked = False
+        sensor_mode = False
+        emitted = False
+        try:
+            for delta in llm.stream_deltas(chat_history):
+                if "llm_first_token_ms" not in vtimings:
+                    vtimings["llm_first_token_ms"] = round((time.perf_counter() - _tllmv) * 1000)
+                full_parts.append(delta)
+                buf += delta
+
+                if not head_checked:
+                    if len(buf) < 48 and "\n" not in buf:
+                        continue
+                    head_checked = True
+                    if "analyze_sensor_data" in buf:
+                        sensor_mode = True  # accumulate silently; tool needs the full call
+                if sensor_mode:
+                    continue
+
+                # Flush complete sentences (Agora starts TTS per chunk)
+                while True:
+                    m = _SENTENCE_END_RE.search(buf)
+                    if not m:
+                        if len(buf) > 300:  # long clause without boundary — flush anyway
+                            clean = sanitize_for_tts(buf)
+                            buf = ""
+                            if clean:
+                                emitted = True
+                                yield _sse(clean + " ")
+                        break
+                    sent, buf = buf[:m.end()], buf[m.end():]
+                    clean = sanitize_for_tts(sent)
+                    if clean:
+                        emitted = True
+                        yield _sse(clean + " ")
+
+            response_text = "".join(full_parts)
+            vtimings["main_llm_ms"] = round((time.perf_counter() - _tllmv) * 1000)
+
+            if sensor_mode or ("analyze_sensor_data" in response_text and not emitted):
+                _tst = time.perf_counter()
+                response_text, handled = handle_sensor_tool_call(
+                    response_text, avatar_id, sensor_provider, sensor_model, llm, chat_history, providers=providers)
+                if handled:
+                    vtimings["sensor_tool_ms"] = round((time.perf_counter() - _tst) * 1000)
+                    print("[Voice] Sensor analysis complete")
+                response_text = sanitize_for_tts(response_text)
+                yield _sse(response_text)
+            else:
+                tail = sanitize_for_tts(buf)
+                if tail:
+                    yield _sse(tail)
+                response_text = sanitize_for_tts(response_text)
+
+            yield _sse(finish=True)
+            yield "data: [DONE]\n\n"
+            _finalize(response_text)
+
+        except Exception as e:
+            print(f"[Voice] Streaming failed ({e}) — falling back to buffered response")
+            if emitted:
+                # Partial audio already went out; close the stream cleanly
+                yield _sse(finish=True)
+                yield "data: [DONE]\n\n"
+                _finalize("".join(full_parts) + " [stream aborted]")
+            else:
+                yield from generate_buffered()
+
+    gen = generate_streaming() if VOICE_STREAMING else generate_buffered()
     return Response(
-        stream_with_context(generate()),
+        stream_with_context(gen),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

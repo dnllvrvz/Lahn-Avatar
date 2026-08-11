@@ -180,6 +180,15 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
     ~3.6s sooner. REMAINING: live ear test that Agora chunk-by-chunk TTS sounds
     natural (sentence pacing); sensor tool-call branch not yet exercised live
     (qwen answered trend question from snapshot without emitting the call).
+    STATUS 2026-08-11 evening: two live streaming sessions (avatar 0) produced
+    NO spoken response despite healthy 200s. Ruled out: SSE format (now matches
+    Agora's custom-llm doc exactly) and nginx buffering (verified incremental
+    egress through the public URL). Not yet ruled out: avatar-0 TTS config
+    (both failures were Lahn; Rio Sagrado untested on streaming), Agora-side
+    chunk handling. Streaming is now an opt-in voice-lab toggle (?streaming=1
+    on the agent llm.url), OFF by default. Next: A/B avatar 2 vs 0 with the
+    toggle on; compare against Agora's reference implementation
+    (github.com/AgoraIO-Community/agora-convo-ai-custom-llm-express).
 
 ## Watching
 

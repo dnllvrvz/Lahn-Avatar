@@ -129,9 +129,12 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
     ear test confirmed Felipe/pt works (PT now good; EN from Felipe is
     PT-accented — inherent to Cartesia's accent-native voices; pinned
     language=pt compounds it). Agora accepted agent starts for avatars 2 and 0.
-    REMAINING: ear-check whether sonic-3 softens Felipe's English accent;
-    per-avatar voices for Lahn (de-capable), Pathwork, MetaRelational; if
-    bilingual accent-neutrality matters to the client, ElevenLabs (GA on Agora,
+    CLIENT-VALIDATED (2026-08-11): the client's long session ran sonic-3 +
+    Felipe and they liked it; Lahn (Miles/en/sonic-3) also confirmed speaking
+    after the Cartesia credit top-up.
+    REMAINING: per-avatar voices for Lahn (de-capable), Pathwork, and
+    MetaRelational (all currently on the Miles/en default); if bilingual
+    accent-neutrality ever matters to the client, ElevenLabs (GA on Agora,
     cross-lingual voice consistency is their differentiator) is the escalation.
     NOTE (user, 2026-08-11): cascaded TTS with manual language flags remains
     inferior to speech-native models (e.g. gpt-realtime) which speak any language
@@ -184,11 +187,13 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
     NO spoken response despite healthy 200s. Ruled out: SSE format (now matches
     Agora's custom-llm doc exactly) and nginx buffering (verified incremental
     egress through the public URL).
-    RESOLVED-ISH: the silence — including on the buffered path — was CARTESIA
-    CREDITS EXHAUSTED (402, "1 credit remaining"), not streaming. Streaming was
-    likely never broken; the SSE conformance fix stands regardless. Streaming
-    remains an opt-in voice-lab toggle (?streaming=1 on the agent llm.url),
-    OFF by default. Retest with the toggle once Cartesia credits are topped up.
+    RESOLVED: the silence — including on the buffered path — was CARTESIA
+    CREDITS EXHAUSTED (402), not streaming. After top-up (2026-08-11), live ear
+    test confirmed BOTH modes work: buffered and streaming both speak on both
+    avatars. Streaming stays an opt-in voice-lab toggle, OFF by default per
+    user preference while it matures. Still unexercised: sensor tool-call
+    branch under streaming; sentence-pacing quality on long replies worth an
+    ear-check during normal use.
 
 ## Watching
 

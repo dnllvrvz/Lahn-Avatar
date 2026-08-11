@@ -2110,12 +2110,22 @@ def voice_chat_completions():
     _tllmv = time.perf_counter()
     response_id = str(_uuid.uuid4())
 
+    _sse_first = {"sent": False}
+
     def _sse(delta=None, finish=False):
+        # OpenAI streaming spec: role appears only in the first delta,
+        # subsequent chunks carry content only.
+        if delta is not None:
+            d = {"content": delta} if _sse_first["sent"] else {"role": "assistant", "content": delta}
+            _sse_first["sent"] = True
+        else:
+            d = {}
         chunk = {
             "id": response_id,
             "object": "chat.completion.chunk",
-            "choices": [{"index": 0,
-                         "delta": ({"role": "assistant", "content": delta} if delta is not None else {}),
+            "created": int(time.time()),
+            "model": chat_model,
+            "choices": [{"index": 0, "delta": d,
                          "finish_reason": "stop" if finish else None}],
         }
         return f"data: {json.dumps(chunk)}\n\n"

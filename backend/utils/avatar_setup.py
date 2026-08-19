@@ -167,6 +167,16 @@ class AvatarConfig:
     def __init__(self, system_prompt):
         self.system_prompt = system_prompt
 
+
+def sensor_config_from_avatar(avatar):
+    """Build the runtime sensor config for an avatar record (None if no sensor URL)."""
+    url = (avatar.get('sensorApiUrl') or '').strip()
+    if not url:
+        return None
+    desc = (avatar.get('sensorDescription') or '').strip()
+    return {'sensor_url': url, 'sensor_description': desc or None}
+
+
 def generate_avatars_config(specific_avatar_id=None):
 	global avatars_path, avatar_llms, avatar_rag_tools, avatar_sensor_tools
 	avatars_path = 'avatars.json'
@@ -214,18 +224,12 @@ def generate_avatars_config(specific_avatar_id=None):
 			avatar_rag_tools[avatar_id] = [None, None, None, None, rag_languages]
 			print(f"Avatar {avatar_id} has no drive folder — RAG disabled")
 
-		sensor_api_url = avatar.get('sensorApiUrl', '').strip()
-		sensor_description = avatar.get('sensorDescription', '').strip()
-
-		if sensor_api_url:
+		sensor_config = sensor_config_from_avatar(avatar)
+		if sensor_config:
 			print(f"Storing sensor config for avatar {avatar_id}")
-			avatar_sensor_tools[avatar_id] = {
-				'sensor_url': sensor_api_url,
-				'sensor_description': sensor_description if sensor_description else None
-			}
 		else:
 			print(f"No sensor API URL for avatar {avatar_id}")
-			avatar_sensor_tools[avatar_id] = None
+		avatar_sensor_tools[avatar_id] = sensor_config
 
 		if specific_avatar_id:
 			avatar_llms[avatar_id] = avatar_config

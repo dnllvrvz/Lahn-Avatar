@@ -21,6 +21,7 @@ from utils.avatar_setup import (
     avatar_sensor_tools,
     avatars_path,
     generate_avatars_config,
+    sensor_config_from_avatar,
     DEFAULT_CHAT_PROVIDER,
     DEFAULT_CHAT_MODEL,
     DEFAULT_TEXT_QUERY_PROVIDER,
@@ -1421,10 +1422,6 @@ def avatar_detail(avatar_id):
     """
     PUT /api/avatars/<avatar_id> -> update an existing avatar
     """
-    # Without the global declaration the regenerated config below would bind to
-    # locals and be discarded — runtime changes (e.g. ragPinned) would not apply
-    # until restart.
-    global avatar_llms, avatar_rag_tools, avatar_sensor_tools
     data = request.get_json() or {}
     avatars = json.load(open(avatars_path, "r"))
     print("Avatars: ", avatars)
@@ -1433,6 +1430,10 @@ def avatar_detail(avatar_id):
     avatar = next((a for a in avatars if a["id"] == avatar_id), None)
     if avatar is None:
         return jsonify({"error": "Avatar not found."}), 404
+
+    # Capture RAG-relevant state before applying updates (for change detection)
+    old_rag_languages = list(avatar.get("ragLanguages") or [])
+    old_pinned = bool(avatar.get("ragPinned"))
 
     # Only update fields present in request
     for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl", "sensorDescription",
@@ -1450,7 +1451,21 @@ def avatar_detail(avatar_id):
 
     print("Avatars after modification: ", avatars)
     save_avatars(avatars, reason=f"update avatar {avatar_id}")
-    avatar_llms, avatar_rag_tools, avatar_sensor_tools = generate_avatars_config()
+
+    # Surgical runtime update — touch only this avatar's state. A full
+    # generate_avatars_config() here would replace the RAG cache and evict every
+    # unpinned avatar's loaded index. (System prompts aren't refetched by PUT —
+    # /api/refresh-prompt handles that — so avatar_llms needs no update.)
+    avatar_sensor_tools[avatar_id] = sensor_config_from_avatar(avatar)
+    if avatar.get("driveFolderId"):
+        new_langs = avatar.get("ragLanguages", ["en", "de"])
+        new_pinned = bool(avatar.get("ragPinned"))
+        avatar_rag_tools.register(avatar_id, avatar["driveFolderId"], new_langs, pinned=new_pinned)
+        if new_langs != old_rag_languages:
+            # Retrieval language set changed — reload the index on next access
+            avatar_rag_tools.invalidate(avatar_id)
+        if new_pinned and not old_pinned:
+            avatar_rag_tools.warm_pinned()
     return jsonify(avatar), 200
 
 

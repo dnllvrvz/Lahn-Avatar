@@ -1369,7 +1369,7 @@ export default function MultiAvatarChat() {
               ) : (() => {
                 const t = lastLatency.timings;
                 const segments = [
-                  { label: "Index load (cold start)", ms: t.index_load_ms || 0, color: "#e879f9" },
+                  { label: "Loading RAG index into RAM", ms: t.index_load_ms || 0, color: "#e879f9" },
                   { label: "Keyword generation (LLM)", ms: t.keyword_gen_ms || 0, color: "#f59e0b" },
                   { label: "Knowledge retrieval (RAG)", ms: t.rag_retrieval_ms || 0, color: "#22d3ee" },
                   { label: "Web search", ms: t.web_search_ms || 0, color: "#a78bfa" },

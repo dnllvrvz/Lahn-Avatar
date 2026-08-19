@@ -19,8 +19,8 @@ DEFAULT_CHAT_MODEL = "gwdg/openai-gpt-oss-120b"
 DEFAULT_TEXT_QUERY_PROVIDER = "gwdg"
 DEFAULT_TEXT_QUERY_MODEL = "meta-llama-3.1-8b-instruct"
 
-DEFAULT_SENSOR_PROVIDER = "openai"
-DEFAULT_SENSOR_MODEL = "gpt-4.1-mini"
+DEFAULT_SENSOR_PROVIDER = "gwdg"
+DEFAULT_SENSOR_MODEL = "gwdg/openai-gpt-oss-120b"
 
 # System prompts for different tasks
 SENSOR_SYSTEM_PROMPT = 'Provide an accurate response to the given query. Only perform calculations. Do not generate any plots or visualizations. Always include the following setup **before any resampling or time-based operations**: df[\'created_at\'] = pd.to_datetime(df[\'created_at\');  df = df.set_index(\'created_at\') . When calculating the variation of a quantity over an interval, use the largest of [seconds, minutes, hours,days, weeks,months,years] which is smaller than the range you\'re calculating over. For example, \'How has X varied over the past week?\' should be based on a daily interval. \'How has Y varied over the past year?\' on a monthly interval etc. :'

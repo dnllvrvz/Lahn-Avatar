@@ -202,8 +202,6 @@ def _persist_health_cache():
 
 if not os.path.exists(LLM_PROVIDERS_PATH):
     json.dump([
-        {"id": "openai", "name": "OpenAI", "hidden": True, "provider_key": "openai",
-         "api_base": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY", "models": []},
         {"id": "gwdg", "name": "JLU", "provider_key": "gwdg",
          "api_base": "https://api.hrz.uni-giessen.de", "api_key_env": "GWDG_API_KEY", "models": []},
         {"id": "openrouter", "name": "OpenRouter", "provider_key": "openai",

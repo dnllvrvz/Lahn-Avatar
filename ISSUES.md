@@ -89,9 +89,9 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
    offline) while the dropdown DISPLAYED the first online option (meta-llama-8b),
    producing "model offline" errors naming a model not visible anywhere.
    Frontend fallback is now health-aware (prefers a non-offline model) in both
-   the saved-defaults and no-defaults branches. Residual config smell: the
-   "openai" provider remains hidden with an empty model list — unhide or remove
-   it if OpenAI models should be selectable.
+   the saved-defaults and no-defaults branches. The hidden "openai" provider was
+   REMOVED 2026-08-18 (llm_providers.json, the seed list, and the global sensor
+   fallback which still pointed at it); all four avatars verified responding.
 
 9. **Cold RAG index load appears as unattributed "backend overhead"** (2026-07-31)
    First request to an idle avatar pays ~4s lazy index load, untimed (debug/1.log

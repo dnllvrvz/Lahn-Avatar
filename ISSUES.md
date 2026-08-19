@@ -81,7 +81,17 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
 
 8. **Avatar 1 (Pathwork) chat model is slow** (2026-07-31)
    gpt-4o-mini took ~5s per voice reply vs 1.4–2.2s for avatar 0's GWDG model.
-   Revisit its chat default if Pathwork gets real use.
+   Voice side resolved 2026-08-11 by the separate voiceChat lane (qwen3-30b).
+   RESOLVED 2026-08-18: chat + sensor defaults moved to gwdg/gpt-oss-120b after
+   they surfaced a UI resolution bug — the defaults pointed at the HIDDEN
+   "openai" provider, which the frontend can't represent; its health-blind
+   fallback silently selected gwdg's first listed model (mistral-large-instruct,
+   offline) while the dropdown DISPLAYED the first online option (meta-llama-8b),
+   producing "model offline" errors naming a model not visible anywhere.
+   Frontend fallback is now health-aware (prefers a non-offline model) in both
+   the saved-defaults and no-defaults branches. Residual config smell: the
+   "openai" provider remains hidden with an empty model list — unhide or remove
+   it if OpenAI models should be selectable.
 
 9. **Cold RAG index load appears as unattributed "backend overhead"** (2026-07-31)
    First request to an idle avatar pays ~4s lazy index load, untimed (debug/1.log

@@ -260,11 +260,16 @@ export default function MultiAvatarChat() {
     const firstProvider = Object.keys(llmOptions)[0];
     const resolveProvider = (p) => (p && llmOptions[p]) ? p : firstProvider;
 
-    // Returns { provider, model }
+    // Returns { provider, model }. When the saved model can't be used (hidden
+    // provider, model no longer listed), fall back to a model that is not
+    // marked offline — a blind models[0] fallback once landed on an offline
+    // model while the dropdown displayed a different, online one.
     const resolveModel = (p, m) => {
       const provider = resolveProvider(p);
       const models = llmOptions[provider]?.models || [];
-      return { provider, model: (m && models.includes(m)) ? m : (models[0] || '') };
+      if (m && models.includes(m)) return { provider, model: m };
+      const online = models.find(mod => modelHealth[mod] !== 'offline');
+      return { provider, model: online || models[0] || '' };
     };
 
     if (selectedAvatar?.llmDefaults) {
@@ -315,15 +320,16 @@ export default function MultiAvatarChat() {
       setHasLlmDefaults(true);
     } else {
       setAdminDefaultModels({ chat: null, textQuery: null, sensor: null, voiceChat: null });
-      // No Admin defaults saved, use global defaults
-      const firstProvider = Object.keys(llmOptions)[0];
+      // No Admin defaults saved — fall back to the first visible provider's
+      // first non-offline model
       if (firstProvider && llmOptions[firstProvider].models.length > 0) {
+        const { model: fallbackModel } = resolveModel(firstProvider, null);
         setCurrentUserChatProvider(firstProvider);
-        setCurrentUserChatModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserChatModel(fallbackModel);
         setCurrentUserTextQueryProvider(firstProvider);
-        setCurrentUserTextQueryModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserTextQueryModel(fallbackModel);
         setCurrentUserSensorProvider(firstProvider);
-        setCurrentUserSensorModel(llmOptions[firstProvider].models[0]);
+        setCurrentUserSensorModel(fallbackModel);
       }
       setCurrentUserTemperature(0.7);
       setCurrentUserTopK(40);

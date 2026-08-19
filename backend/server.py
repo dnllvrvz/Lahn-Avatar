@@ -984,6 +984,11 @@ def chat():
         avatar_id, chat_history, conversation, text_query_llm, verbose=True
     )
     pre_web_search_query = suppress_sensor_web_search(pre_web_search_query, avatar_id)
+    # If this request triggered the avatar's RAG index cold load, surface it as
+    # its own latency segment (otherwise it hides in "backend overhead").
+    _load_ms = avatar_rag_tools.consume_load_ms(avatar_id)
+    if _load_ms:
+        timings["index_load_ms"] = _load_ms
     print(f"[TIMING] keyword-gen: {timings.get('keyword_gen_ms', 0)}ms, rag-retrieval: {timings.get('rag_retrieval_ms', 0)}ms")
     if rag_injected:
         print("Obtaining information for the LLM...")
@@ -1418,6 +1423,10 @@ def avatar_detail(avatar_id):
     """
     PUT /api/avatars/<avatar_id> -> update an existing avatar
     """
+    # Without the global declaration the regenerated config below would bind to
+    # locals and be discarded — runtime changes (e.g. ragPinned) would not apply
+    # until restart.
+    global avatar_llms, avatar_rag_tools, avatar_sensor_tools
     data = request.get_json() or {}
     avatars = json.load(open(avatars_path, "r"))
     print("Avatars: ", avatars)
@@ -1429,7 +1438,7 @@ def avatar_detail(avatar_id):
 
     # Only update fields present in request
     for field in ["name", "systemPromptUrl", "contextDocsUrl", "sensorApiUrl", "sensorDescription",
-                  "ttsVoiceId", "ttsLanguage"]:
+                  "ttsVoiceId", "ttsLanguage", "ragPinned"]:
         if field in data and data[field] is not None:
             avatar[field] = data[field]
 
@@ -2084,6 +2093,12 @@ def voice_chat_completions():
                 debug_log(avatar_id, "VOICE/RAG_CONTEXT", rag_context)
     except Exception as e:
         print(f"[Voice] RAG failed (continuing without context): {e}")
+
+    # If this request triggered the avatar's RAG index cold load, surface it as
+    # its own latency segment (otherwise it hides in "backend overhead").
+    _load_ms = avatar_rag_tools.consume_load_ms(avatar_id)
+    if _load_ms:
+        vtimings["index_load_ms"] = _load_ms
 
     # Sensor tool prompt injection + always-fetch snapshot
     sensor_config = avatar_sensor_tools.get(avatar_id)

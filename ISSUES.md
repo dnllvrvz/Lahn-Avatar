@@ -85,8 +85,15 @@ Open issues to fix, roughly ranked by impact. Date = when identified.
 
 9. **Cold RAG index load appears as unattributed "backend overhead"** (2026-07-31)
    First request to an idle avatar pays ~4s lazy index load, untimed (debug/1.log
-   first Pathwork turn: 10.1s total, 4.0s overhead). Time it as its own labeled
-   segment, or pre-warm indices at startup.
+   first Pathwork turn: 10.1s total, 4.0s overhead).
+   IMPLEMENTED 2026-08-18 (both halves): per-avatar `ragPinned` toggle (Knowledge
+   group in LLM config Shared section) — pinned avatars warm in a background
+   thread at startup/config change and are never evicted, so their users never
+   pay the cold start (verified: pinned avatar 2 request had no load segment);
+   unpinned avatars now report the load as an "Index load (cold start)" segment
+   in both labs' latency panels (verified: 4159ms on avatar 1). Warm/admin loads
+   are excluded from request attribution. Server restart still costs one
+   background warm window per pinned avatar.
 
 10. **TTS language/voice not configured** (2026-08-11)
     Cartesia config passes no `language` param and hardcodes one `voice_id` for all

@@ -44,9 +44,10 @@ class LazyAvatarRAGTools:
     """
 
     def __init__(self):
-        self._meta = {}       # avatar_id -> {drive_folder_id, rag_languages}
+        self._meta = {}       # avatar_id -> {drive_folder_id, rag_languages, pinned}
         self._loaded = {}     # avatar_id -> (tools, last_access_ts)
         self._no_rag = {}     # avatar_id -> [None, None, None, None, rag_languages]
+        self._last_load_ms = {}  # avatar_id -> duration of the most recent cold load
         self._lock = threading.Lock()
         t = threading.Thread(target=self._eviction_loop, daemon=True)
         t.start()
@@ -78,14 +79,17 @@ class LazyAvatarRAGTools:
         # Load outside the lock so other avatars aren't blocked
         meta = self._meta[avatar_id]
         print(f"[RAG cache] Loading index for avatar {avatar_id}...")
+        t0 = time.time()
         tools = prepare_query_engines(
             avatar_id=avatar_id,
             drive_folder_id=meta['drive_folder_id'],
             rag_languages=meta['rag_languages'],
         )
+        load_ms = round((time.time() - t0) * 1000)
         with self._lock:
             self._loaded[avatar_id] = (tools, time.time())
-        print(f"[RAG cache] Avatar {avatar_id} index loaded and cached")
+            self._last_load_ms[avatar_id] = load_ms
+        print(f"[RAG cache] Avatar {avatar_id} index loaded and cached ({load_ms}ms)")
         return tools
 
     def __setitem__(self, avatar_id, value):
@@ -102,17 +106,48 @@ class LazyAvatarRAGTools:
             with self._lock:
                 self._loaded[avatar_id] = (value, time.time())
 
-    def register(self, avatar_id, drive_folder_id, rag_languages):
+    def register(self, avatar_id, drive_folder_id, rag_languages, pinned=False):
         """Register an avatar for lazy loading without loading its index yet."""
         self._meta[avatar_id] = {
             'drive_folder_id': drive_folder_id,
             'rag_languages': rag_languages,
+            'pinned': pinned,
         }
 
     def invalidate(self, avatar_id):
         """Force eviction so the next access reloads from disk."""
         with self._lock:
             self._loaded.pop(avatar_id, None)
+
+    def consume_load_ms(self, avatar_id):
+        """
+        Return-and-clear the duration of the last cold load for this avatar, so
+        the request that triggered it can report it as its own latency segment
+        (and later requests don't).
+        """
+        with self._lock:
+            return self._last_load_ms.pop(avatar_id, 0)
+
+    def warm_pinned(self):
+        """
+        Load pinned avatars' indexes in a background thread so their users never
+        pay the cold start. Called at startup and after avatar config changes;
+        already-loaded indexes are a no-op.
+        """
+        pinned = [aid for aid, m in self._meta.items() if m.get('pinned')]
+        if not pinned:
+            return
+        def _warm():
+            for aid in pinned:
+                try:
+                    _ = self[aid]
+                    # Discard the load record — this load wasn't paid by a user
+                    # request, so no request should report it as its cold start.
+                    self.consume_load_ms(aid)
+                except Exception as e:
+                    print(f"[RAG cache] warm failed for pinned avatar {aid}: {e}")
+        threading.Thread(target=_warm, daemon=True).start()
+        print(f"[RAG cache] warming pinned avatars in background: {pinned}")
 
     # ── background eviction ──────────────────────────────────────────────────
 
@@ -121,7 +156,8 @@ class LazyAvatarRAGTools:
             time.sleep(60)
             cutoff = time.time() - RAG_EVICT_AFTER
             with self._lock:
-                stale = [aid for aid, (_, ts) in self._loaded.items() if ts < cutoff]
+                stale = [aid for aid, (_, ts) in self._loaded.items()
+                         if ts < cutoff and not self._meta.get(aid, {}).get('pinned')]
                 for aid in stale:
                     del self._loaded[aid]
                     print(f"[RAG cache] Evicted avatar {aid} index (inactive for 30 min)")
@@ -166,9 +202,13 @@ def generate_avatars_config(specific_avatar_id=None):
 		print(f"Avatar {avatar_id} RAG languages: {rag_languages}")
 
 		if drive_folder_id:
-			# Register for lazy loading — index is NOT loaded now
-			avatar_rag_tools.register(avatar_id, drive_folder_id, rag_languages)
-			print(f"Avatar {avatar_id} RAG index registered for lazy loading")
+			# Register for lazy loading — index is NOT loaded now. Pinned avatars
+			# (ragPinned in avatars.json) are warmed in the background below and
+			# never evicted.
+			avatar_rag_tools.register(avatar_id, drive_folder_id, rag_languages,
+			                          pinned=bool(avatar.get('ragPinned')))
+			print(f"Avatar {avatar_id} RAG index registered for lazy loading"
+			      + (" (pinned)" if avatar.get('ragPinned') else ""))
 		else:
 			# No RAG — store no-op sentinel immediately (cheap)
 			avatar_rag_tools[avatar_id] = [None, None, None, None, rag_languages]
@@ -193,10 +233,12 @@ def generate_avatars_config(specific_avatar_id=None):
 			if drive_folder_id:
 				avatar_rag_tools.invalidate(avatar_id)
 				_ = avatar_rag_tools[avatar_id]  # trigger load
+				avatar_rag_tools.consume_load_ms(avatar_id)  # admin-triggered, not a request's cold start
 			return avatar_config, avatar_rag_tools[avatar_id], avatar_sensor_tools
 
 		avatar_llms[avatar_id] = avatar_config
 
+	avatar_rag_tools.warm_pinned()
 	return avatar_llms, avatar_rag_tools, avatar_sensor_tools
 
 

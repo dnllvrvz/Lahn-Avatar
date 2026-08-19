@@ -72,6 +72,7 @@ export default function MultiAvatarChat() {
   const [ttsLangSel, setTtsLangSel] = useState("");
   const [ttsSaving, setTtsSaving] = useState(false);
   const [ttsMsg, setTtsMsg] = useState("");
+  const [ragPinSaving, setRagPinSaving] = useState(false);
   const backendLogRef = useRef(null);
   const backendLogPreRef = useRef(null);
   const backendLogFirstLoadRef = useRef(true);
@@ -799,6 +800,25 @@ export default function MultiAvatarChat() {
     }
   };
 
+  const handleToggleRagPinned = async (checked) => {
+    if (!selectedAvatarId) return;
+    setRagPinSaving(true);
+    try {
+      const resp = await fetch(`/api/avatars/${selectedAvatarId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ragPinned: checked }),
+      });
+      if (!resp.ok) throw new Error((await resp.json()).error || "Save failed");
+      const updated = await fetch("/api/avatars").then(r => r.json());
+      setAvatars(updated);
+    } catch (e) {
+      console.error("Failed to toggle RAG pinning:", e);
+    } finally {
+      setRagPinSaving(false);
+    }
+  };
+
   useEffect(() => {
     // Reset chat when switching avatars
     setDefaultMessages([]);
@@ -1154,6 +1174,23 @@ export default function MultiAvatarChat() {
                   </div>
               </div>
 
+              {/* Knowledge (RAG) memory pinning */}
+              <div className="p-3 rounded-lg border bg-stone-50/60">
+                  <label className="block font-poetic text-stone-800 font-semibold text-sm mb-2">Knowledge (RAG)</label>
+                  <div className="flex items-center gap-3">
+                      <Switch
+                          checked={!!selectedAvatar?.ragPinned}
+                          disabled={ragPinSaving || !selectedAvatarId}
+                          onCheckedChange={handleToggleRagPinned}
+                          className="data-[state=checked]:bg-green-600"
+                      />
+                      <span className="font-poetic text-stone-600 text-xs">
+                        Keep knowledge in memory — removes the first-request delay after idle
+                        periods. For high-traffic avatars; uses server RAM.
+                      </span>
+                  </div>
+              </div>
+
               {/* Admin defaults toggle */}
               <div className="flex items-center justify-center space-x-2 mt-2">
                   <label className="font-poetic text-stone-700 text-sm">Admin Defaults:</label>
@@ -1326,6 +1363,7 @@ export default function MultiAvatarChat() {
               ) : (() => {
                 const t = lastLatency.timings;
                 const segments = [
+                  { label: "Index load (cold start)", ms: t.index_load_ms || 0, color: "#e879f9" },
                   { label: "Keyword generation (LLM)", ms: t.keyword_gen_ms || 0, color: "#f59e0b" },
                   { label: "Knowledge retrieval (RAG)", ms: t.rag_retrieval_ms || 0, color: "#22d3ee" },
                   { label: "Web search", ms: t.web_search_ms || 0, color: "#a78bfa" },
